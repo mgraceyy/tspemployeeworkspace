@@ -1,6 +1,11 @@
 # TalaSora Prime DTR
 
-Employee timekeeping (Daily Time Record) and lightweight employee workspace built with Rust, Axum, PostgreSQL, and MiniJinja.
+[![CI](https://github.com/mgraceyy/tspemployeeworkspace/actions/workflows/ci.yml/badge.svg)](https://github.com/mgraceyy/tspemployeeworkspace/actions/workflows/ci.yml)
+
+Employee timekeeping (Daily Time Record) and lightweight employee workspace for **TalaSora Prime** — built with Rust, Axum, PostgreSQL, and MiniJinja.
+
+> **Repository:** [github.com/mgraceyy/tspemployeeworkspace](https://github.com/mgraceyy/tspemployeeworkspace)  
+> **License:** MIT · **Version:** v0.1.0
 
 ## Features
 
@@ -159,8 +164,13 @@ templates/     MiniJinja HTML templates
 static/        CSS and static assets
 scripts/       Database and uploads backup/restore scripts
 e2e/           Playwright browser tests
-docs/          Reverse proxy configuration examples
+docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
 ```
+
+## Payroll roadmap
+
+v0.1.0 covers **time & attendance reporting** (hours, OT, leave counts, period close, CSV/Excel export).  
+**Compensation, deductions, and payslips** are planned in phases — see [docs/PAYROLL.md](docs/PAYROLL.md).
 
 ## Security headers
 
@@ -365,3 +375,31 @@ E2E_BASE_URL=http://127.0.0.1:8080 npm test
 ```
 
 E2E specs cover login, health/metrics, auth flows, manager actions, requirements upload, admin employee creation, authorization boundaries, and closed pay-period blocking.
+
+## Contributing
+
+### Git commit identity
+
+Use your GitHub email so commits link to your profile (Settings → Emails → `id+username@users.noreply.github.com`):
+
+```bash
+git config user.name "Grace"
+git config user.email "221118937+mgraceyy@users.noreply.github.com"
+```
+
+### Releases
+
+Tag production baselines after CI is green:
+
+```bash
+git tag -a v0.1.0 -m "First production baseline: DTR + workspace, 127 tests, full CI"
+git push origin v0.1.0
+```
+
+### Suggested GitHub repository settings
+
+On [github.com/mgraceyy/tspemployeeworkspace](https://github.com/mgraceyy/tspemployeeworkspace/settings):
+
+- **Description:** `TalaSora Prime employee timekeeping & workspace (Rust/Axum)`
+- **Topics:** `rust`, `axum`, `postgresql`, `timekeeping`, `dtr`, `hr`, `playwright`
+- **Visibility:** Private recommended for internal company deployment (code has no secrets, but ops details are exposed)
