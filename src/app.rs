@@ -202,6 +202,11 @@ where
         )
         .route("/admin/payroll/{run_id}", get(admin::payroll_run_page))
         .route(
+            "/admin/payroll/{run_id}/lines/{line_id}",
+            get(admin::payroll_line_deductions_page)
+                .post(admin::save_payroll_line_deductions_action),
+        )
+        .route(
             "/admin/payroll/{run_id}/finalize",
             post(admin::finalize_payroll_run_action),
         )

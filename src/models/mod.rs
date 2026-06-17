@@ -1,4 +1,5 @@
 pub mod compensation;
+pub mod deduction;
 pub mod employee;
 pub mod holiday;
 pub mod leave;
@@ -12,6 +13,7 @@ pub mod shift;
 pub mod time_entry;
 
 pub use compensation::CompensationProfile;
+pub use deduction::{DeductionType, PayrollDeduction, PayrollDeductionWithType};
 pub use employee::{Employee, EmployeeSummary, UserRole};
 pub use holiday::CompanyHoliday;
 pub use leave::{LeaveRequest, LeaveRequestStatus, LeaveRequestType, LeaveRequestWithEmployee};

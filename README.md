@@ -170,7 +170,7 @@ docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
 ## Payroll roadmap
 
 v0.1.0 covers **time & attendance reporting** (hours, OT, leave counts, period close, CSV/Excel export).  
-**Compensation** and **payroll runs** (gross pay for closed periods) are available; **manual deductions and payslips** are next — see [docs/PAYROLL.md](docs/PAYROLL.md).
+**Compensation**, **payroll runs** (gross pay for closed periods), and **manual deductions** (net pay) are available; **payslips** are next — see [docs/PAYROLL.md](docs/PAYROLL.md).
 
 **Ops (locked):** Admin runs payroll in-app; bank/accounting export and 13th-month pay stay outside the app for now.
 

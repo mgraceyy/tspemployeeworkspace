@@ -54,4 +54,5 @@ pub struct PayrollLineWithEmployee {
     pub ot_pay_cents: i64,
     pub gross_pay_cents: i64,
     pub net_pay_cents: i64,
+    pub total_deduction_cents: i64,
 }

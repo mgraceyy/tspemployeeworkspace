@@ -15,10 +15,14 @@
 
 <section class="panel">
   <h2>Summary</h2>
-  <p>{{ content.line_count }} employee(s) · Total gross: <strong>PHP {{ content.total_gross }}</strong></p>
+  <p>{{ content.line_count }} employee(s)</p>
+  <p>Total gross: <strong>PHP {{ content.total_gross }}</strong></p>
+  <p>Total deductions: <strong>PHP {{ content.total_deductions }}</strong></p>
+  <p>Total net: <strong>PHP {{ content.total_net }}</strong></p>
   {% if content.is_draft %}
+  <p class="hint">Enter deductions per employee before finalizing. Net pay = gross − deductions.</p>
   <form method="post" action="/admin/payroll/{{ content.run_id }}/finalize" class="inline-form"
-    onsubmit="return confirm('Finalize this payroll run? Gross pay will be locked for this period.');">
+    onsubmit="return confirm('Finalize this payroll run? Gross pay and deductions will be locked for this period.');">
     {% include "partials/csrf_field.html" %}
     <button type="submit" class="btn btn-primary">Finalize run</button>
   </form>
@@ -38,7 +42,9 @@
         <th>No-show ded.</th>
         <th>OT pay</th>
         <th>Gross</th>
+        <th>Deductions</th>
         <th>Net</th>
+        {% if content.is_draft %}<th></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -53,7 +59,11 @@
         <td>{% if line.no_show_deduction != "0.00" %}-{{ line.no_show_deduction }}{% else %}—{% endif %}</td>
         <td>{{ line.ot_pay }}</td>
         <td><strong>{{ line.gross_pay }}</strong></td>
-        <td>{{ line.net_pay }}</td>
+        <td>{% if line.has_deductions %}{{ line.deductions }}{% else %}—{% endif %}</td>
+        <td><strong>{{ line.net_pay }}</strong></td>
+        {% if content.is_draft %}
+        <td><a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}">Deductions</a></td>
+        {% endif %}
       </tr>
       {% endfor %}
     </tbody>

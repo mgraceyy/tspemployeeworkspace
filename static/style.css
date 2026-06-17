@@ -265,6 +265,17 @@ textarea {
 }
 .closed-period-label { flex: 1 1 12rem; }
 
+.deduction-fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin: 0;
+}
+.deduction-fieldset legend {
+  font-weight: 700;
+  padding: 0 0.35rem;
+}
+
 @media (max-width: 600px) {
   .container { padding: 1rem; }
   .header-inner { flex-direction: column; align-items: stretch; }

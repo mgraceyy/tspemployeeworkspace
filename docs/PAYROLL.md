@@ -10,7 +10,7 @@ TalaSora Prime DTR payroll policy and implementation plan. Updated after v0.1.0 
 | Overtime | **132%** of hourly equivalent (configurable per employee, default 132) |
 | No-shows | **Reduce pay** — one daily rate deducted per no-show day |
 | Sick / vacation / official / offset leave | **Informational only** — tracked in reports, no pay adjustment |
-| Deductions (SSS, PhilHealth, tax, loans) | **Manual entry** per payroll run (Phase 3) |
+| Deductions (SSS, PhilHealth, tax, loans) | **Manual entry** per employee on draft payroll runs |
 
 ### Gross pay formula (monthly employees)
 
@@ -65,7 +65,8 @@ Implementation: `src/services/payroll/compute.rs`
 | Admin UI `/admin/payroll` | Done |
 | Draft run from closed period | Done |
 | Finalize (lock gross pay) | Done |
-| Manual deductions / payslips | **Phase 3–4** |
+| Manual deductions → net pay | Done |
+| Payslips | **Phase 4** |
 
 ---
 
@@ -148,31 +149,18 @@ CREATE TABLE payroll_lines (
 
 ---
 
-## Phase 3 — Manual deductions
+## Phase 3 — Manual deductions ✅
 
-```sql
-CREATE TABLE deduction_types (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    code TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL
-);
+**Schema:** `migrations/020_payroll_deductions.sql`
 
-CREATE TABLE payroll_deductions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    line_id UUID NOT NULL REFERENCES payroll_lines(id) ON DELETE CASCADE,
-    deduction_type_id UUID NOT NULL REFERENCES deduction_types(id),
-    amount_cents BIGINT NOT NULL,
-    note TEXT
-);
-```
-
-Seed types: `SSS`, `PHIC`, `HDMF`, `WHT`, `LOAN`, `OTHER`
+- `deduction_types` — seeded: SSS, PhilHealth, Pag-IBIG, withholding tax, loan, other
+- `payroll_deductions` — amounts per employee line on a draft run
 
 ```
 net_pay = gross_pay − sum(deductions)
 ```
 
-Admin enters amounts per employee on the draft run before finalize.
+**Admin UI:** Payroll run → **Deductions** per employee (`/admin/payroll/{run_id}/lines/{line_id}`). Edits blocked after finalize. Total deductions cannot exceed gross pay.
 
 ---
 
@@ -206,6 +194,7 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | `/admin/payroll` | ✅ Done |
 | `/admin/payroll/{id}` | ✅ Done |
 | `/admin/payroll/{id}/finalize` | ✅ Done |
+| `/admin/payroll/{run_id}/lines/{line_id}` | ✅ Done |
 | `/me/payslips` | Phase 4 |
 
 ---

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Payroll Deductions</h1>
+  <p class="muted">{{ content.employee_code }} · {{ content.full_name }}</p>
+  <p class="muted">{{ content.period_label }} · <strong>{{ content.status }}</strong></p>
+  <p><a href="/admin/payroll/{{ content.run_id }}">← Back to payroll run</a></p>
+</section>
+
+<section class="panel">
+  <h2>Earnings</h2>
+  <p>Gross pay: <strong>PHP {{ content.gross_pay }}</strong></p>
+  <p>Total deductions: <strong>PHP {{ content.total_deductions }}</strong></p>
+  <p>Net pay: <strong>PHP {{ content.net_pay }}</strong></p>
+</section>
+
+{% if content.is_draft %}
+<section class="panel narrow-panel">
+  <h2>Manual deductions</h2>
+  <p class="hint">Enter SSS, PhilHealth, Pag-IBIG, withholding tax, loans, and other deductions. Leave blank for zero. Total deductions cannot exceed gross pay.</p>
+  <form method="post" action="/admin/payroll/{{ content.run_id }}/lines/{{ content.line_id }}" class="stack">
+    {% include "partials/csrf_field.html" %}
+    {% for dt in content.deduction_types %}
+    <fieldset class="deduction-fieldset">
+      <legend>{{ dt.name }}</legend>
+      <label>Amount (PHP)
+        <input type="text" name="amount_{{ dt.code_lower }}" value="{{ dt.amount }}"
+          inputmode="decimal" placeholder="0.00">
+      </label>
+      <label>Note <span class="hint">(optional)</span>
+        <input type="text" name="note_{{ dt.code_lower }}" value="{{ dt.note }}" maxlength="200">
+      </label>
+    </fieldset>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary">Save deductions</button>
+  </form>
+</section>
+{% else %}
+<section class="panel">
+  <h2>Deductions</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Amount</th>
+          <th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for dt in content.deduction_types %}
+        {% if dt.amount %}
+        <tr>
+          <td>{{ dt.name }}</td>
+          <td>{{ dt.amount }}</td>
+          <td>{{ dt.note or "—" }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if content.total_deductions == "0.00" %}
+  <p class="muted">No deductions recorded for this employee.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

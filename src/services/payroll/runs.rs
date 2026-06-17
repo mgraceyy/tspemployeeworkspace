@@ -12,6 +12,7 @@ use super::compute::{
     base_pay_cents_for_period, gross_pay_cents, no_show_deduction_cents, ot_pay_cents,
     GrossPayInput,
 };
+use super::deductions::refresh_all_line_net_pay;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PayrollRunListItem {
@@ -99,7 +100,10 @@ pub async fn list_lines_for_run(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
                 l.base_pay_cents, l.no_show_deduction_cents, l.ot_pay_cents,
-                l.gross_pay_cents, l.net_pay_cents
+                l.gross_pay_cents, l.net_pay_cents,
+                COALESCE((
+                    SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
+                ), 0) AS total_deduction_cents
          FROM payroll_lines l
          JOIN employees e ON e.id = l.employee_id
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
@@ -247,6 +251,8 @@ pub async fn finalize_run(pool: &PgPool, run_id: Uuid, finalized_by: Uuid) -> Ap
         return Err(AppError::bad_request("Payroll run has no employee lines"));
     }
 
+    refresh_all_line_net_pay(pool, run_id).await?;
+
     let updated = sqlx::query(
         "UPDATE payroll_runs
          SET status = 'finalized', finalized_at = now(), finalized_by = $2
@@ -265,6 +271,14 @@ pub async fn finalize_run(pool: &PgPool, run_id: Uuid, finalized_by: Uuid) -> Ap
 
 pub fn total_gross_cents(lines: &[PayrollLineWithEmployee]) -> i64 {
     lines.iter().map(|l| l.gross_pay_cents).sum()
+}
+
+pub fn total_net_cents(lines: &[PayrollLineWithEmployee]) -> i64 {
+    lines.iter().map(|l| l.net_pay_cents).sum()
+}
+
+pub fn total_deduction_cents(lines: &[PayrollLineWithEmployee]) -> i64 {
+    lines.iter().map(|l| l.total_deduction_cents).sum()
 }
 
 pub fn total_pending_ot_minutes(lines: &[PayrollLineWithEmployee]) -> i32 {

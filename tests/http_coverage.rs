@@ -1300,6 +1300,41 @@ async fn admin_can_finalize_payroll_run_via_http() {
     let run_path = format!("/admin/payroll/{run_id}");
     let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
     assert!(run_html.contains("Finalize run"));
+    assert!(run_html.contains("Deductions"));
+
+    let line_id: Uuid = sqlx::query_scalar(
+        "SELECT l.id FROM payroll_lines l
+         JOIN employees e ON e.id = l.employee_id
+         WHERE l.run_id = $1 AND e.employee_code = $2",
+    )
+    .bind(run_id)
+    .bind(emp_code.to_uppercase())
+    .fetch_one(&pool)
+    .await
+    .expect("line id");
+
+    let deductions_path = format!("/admin/payroll/{run_id}/lines/{line_id}");
+    let (_, deductions_html, cookies) = get(&mut app, &deductions_path, &cookies).await;
+    assert!(deductions_html.contains("Manual deductions"));
+    let csrf = extract_csrf_token(&deductions_html).expect("csrf");
+    let body = format!("amount_sss=500.00&note_sss=HTTP+test&csrf_token={csrf}");
+    let (status, _, cookies) = post_form(&mut app, &deductions_path, &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let net_pay: i64 = sqlx::query_scalar("SELECT net_pay_cents FROM payroll_lines WHERE id = $1")
+        .bind(line_id)
+        .fetch_one(&pool)
+        .await
+        .expect("net pay");
+    let gross_pay: i64 =
+        sqlx::query_scalar("SELECT gross_pay_cents FROM payroll_lines WHERE id = $1")
+            .bind(line_id)
+            .fetch_one(&pool)
+            .await
+            .expect("gross pay");
+    assert_eq!(net_pay, gross_pay - 50_000);
+
+    let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
     let csrf = extract_csrf_token(&run_html).expect("csrf");
     let finalize_path = format!("/admin/payroll/{run_id}/finalize");
     let (status, _, _) = post_form(
