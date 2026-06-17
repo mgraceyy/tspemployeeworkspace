@@ -1,0 +1,3 @@
+# Transitive via sqlx-core (PostgreSQL auth). No fixed rsa release; DTR does not use RSA directly.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

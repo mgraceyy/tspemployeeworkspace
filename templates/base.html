@@ -14,19 +14,88 @@
         <span class="brand-sub">Employee Timekeeping</span>
       </div>
       {% if user %}
+      <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-hidden="true">
+      <label for="nav-toggle" class="nav-toggle-label">Menu</label>
       <nav class="nav">
-        <a href="/">Clock</a>
-        <a href="/me/timesheet">My Timesheet</a>
-        {% if user.role == "manager" or user.role == "admin" %}
-        <a href="/manager">Manager</a>
-        <a href="/manager/team">Team</a>
-        {% endif %}
-        {% if user.role == "admin" %}
-        <a href="/admin/employees">Employees</a>
-        <a href="/admin/reports">Reports</a>
-        <a href="/admin/settings">Settings</a>
+        {% if not user.must_change_pin %}
+        <div class="nav-groups">
+          <div class="nav-group">
+            <span class="nav-group-label">Time</span>
+            <div class="nav-group-links">
+              <a href="/">Clock</a>
+              <a href="/me/timesheet">Timesheet</a>
+              <a href="/me/leave">Leave</a>
+              <a href="/me/holidays">Holidays</a>
+            </div>
+          </div>
+          <div class="nav-group">
+            <span class="nav-group-label">My Workspace</span>
+            <div class="nav-group-links">
+              <a href="/me/profile">Profile</a>
+              <a href="/me/requirements">Requirements</a>
+              <a href="/me/eod" class="nav-link-with-badge">
+                EOD
+                {% if pending_eod %}
+                <span class="nav-badge">!</span>
+                {% endif %}
+              </a>
+              <a href="/me/eod/history">History</a>
+              <a href="/me/team/eod">Team EOD</a>
+            </div>
+          </div>
+          {% if user.role == "manager" or user.role == "admin" %}
+          <div class="nav-group">
+            <span class="nav-group-label">Manager</span>
+            <div class="nav-group-links">
+              <a href="/manager" class="nav-link-with-badge">
+                Dashboard
+                {% if pending_ot_count > 0 %}
+                <span class="nav-badge">{{ pending_ot_count }}</span>
+                {% endif %}
+              </a>
+              <a href="/manager/team">Team</a>
+              <a href="/manager/leave" class="nav-link-with-badge">
+                Leave
+                {% if pending_leave_count > 0 %}
+                <span class="nav-badge">{{ pending_leave_count }}</span>
+                {% endif %}
+              </a>
+              <a href="/manager/requirements" class="nav-link-with-badge">
+                Req. Reviews
+                {% if pending_requirements_count > 0 %}
+                <span class="nav-badge">{{ pending_requirements_count }}</span>
+                {% endif %}
+              </a>
+              <a href="/manager/eod">Team EOD</a>
+            </div>
+          </div>
+          {% endif %}
+          {% if user.role == "admin" %}
+          <div class="nav-group">
+            <span class="nav-group-label">Admin</span>
+            <div class="nav-group-links">
+              <a href="/admin/employees">Employees</a>
+              <a href="/admin/requirements">Req. Types</a>
+              <a href="/admin/holidays">Holidays</a>
+              <a href="/admin/reports">Reports</a>
+              <a href="/admin/corrections">Corrections</a>
+              <a href="/admin/eod">Unlock EOD</a>
+              <a href="/admin/audit">Audit</a>
+              <a href="/admin/settings">Settings</a>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        <a href="/notifications" class="nav-link-with-badge">
+          Alerts
+          {% if notification_count > 0 %}
+          <span class="nav-badge">{{ notification_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/change-pin">Change PIN</a>
         {% endif %}
         <form method="post" action="/logout" class="inline-form">
+          {% include "partials/csrf_field.html" %}
           <button type="submit" class="link-button">Logout ({{ user.full_name }})</button>
         </form>
       </nav>
@@ -34,7 +103,16 @@
     </div>
   </header>
   <main class="container">
+    {% if flash %}
+    <div class="alert alert-{{ flash.kind }}">{{ flash.message }}</div>
+    {% endif %}
     {% block page %}{% endblock %}
   </main>
+  {% if user and not user.must_change_pin %}
+  <p class="session-note muted" role="note">
+    Sessions end after {{ session_idle_hours }} hours without server activity (sign in again to continue).
+    This app records clock in/out only — it does not monitor mouse, keyboard, or other activity.
+  </p>
+  {% endif %}
 </body>
 </html>

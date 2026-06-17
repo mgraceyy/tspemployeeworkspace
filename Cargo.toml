@@ -2,11 +2,24 @@
 name = "dtr"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+
+[lib]
+name = "dtr"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dtr"
+path = "src/main.rs"
+
+[[bin]]
+name = "dtr-migrate"
+path = "src/bin/migrate.rs"
 
 [dependencies]
 anyhow = "1"
 argon2 = "0.5"
-axum = { version = "0.8", features = ["json", "macros"] }
+axum = { version = "0.8", features = ["json", "macros", "multipart"] }
 csv = "1"
 rust_xlsxwriter = "0.79"
 dotenvy = "0.15"
@@ -22,5 +35,9 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 tower-sessions = { version = "0.14", features = ["signed"] }
 tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4"] }
+time-tz = { version = "2.0.0", features = ["db"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

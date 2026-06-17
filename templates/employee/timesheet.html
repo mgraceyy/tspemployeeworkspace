@@ -2,7 +2,20 @@
 {% block page %}
 <section class="page-header">
   <h1>My Timesheet</h1>
-  <p class="muted">Last 30 days</p>
+  <p class="muted">{{ content.start_date }} to {{ content.end_date }}</p>
+  <p class="hint">Clock in/out times are saved automatically when you time in and out. Contact your manager or admin if a correction is needed.</p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>Date range</h2>
+  <form method="get" action="/me/timesheet" class="stack">
+    <label>Start <input type="date" name="start" value="{{ content.start_date }}"></label>
+    <label>End <input type="date" name="end" value="{{ content.end_date }}"></label>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Apply</button>
+      <a href="/me/timesheet/export.csv{{ content.export_query }}" class="btn">Download CSV</a>
+    </div>
+  </form>
 </section>
 
 <div class="table-wrap">
@@ -30,7 +43,7 @@
         <td>{{ entry.attendance }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="muted">No entries yet.</td></tr>
+      <tr><td colspan="7" class="muted">No entries in this date range.</td></tr>
       {% endfor %}
     </tbody>
   </table>

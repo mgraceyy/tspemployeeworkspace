@@ -7,6 +7,7 @@
   <div class="alert alert-error">{{ content.error }}</div>
   {% endif %}
   <form method="post" action="/login" class="stack">
+    {% include "partials/csrf_field.html" %}
     <label>
       Employee Code
       <input type="text" name="employee_code" required autocomplete="username" placeholder="E0042">

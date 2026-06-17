@@ -1,0 +1,21 @@
+# Reverse proxy example for TalaSora Prime DTR (standalone / custom deploy).
+# Place behind HTTPS; set APP_ENV=production and TRUST_PROXY_HEADERS=true on the app.
+#
+# Overwrite forwarding headers with the real client — do not forward client X-Forwarded-For.
+
+:443 {
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    reverse_proxy dtr:8080 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+    }
+}

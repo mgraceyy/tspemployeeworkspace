@@ -1,0 +1,34 @@
+# Reverse proxy example for TalaSora Prime DTR
+# Set APP_ENV=production, SESSION_SECURE_COOKIES=true, and TRUST_PROXY_HEADERS=true on the app.
+#
+# IMPORTANT: overwrite X-Forwarded-For with the real client IP ($remote_addr).
+# Do NOT use $proxy_add_x_forwarded_for — clients can prepend spoofed IPs and the app
+# would otherwise trust the leftmost value. DTR prefers X-Real-IP, then the rightmost
+# hop in X-Forwarded-For when TRUST_PROXY_HEADERS=true.
+
+upstream dtr_app {
+    server 127.0.0.1:8080;
+    keepalive 16;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name dtr.example.com;
+
+    # ssl_certificate     /etc/letsencrypt/live/dtr.example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/dtr.example.com/privkey.pem;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location / {
+        proxy_pass http://dtr_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

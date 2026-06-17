@@ -14,7 +14,9 @@ FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r dtr \
+    && useradd -r -g dtr -d /app -s /usr/sbin/nologin dtr
 
 WORKDIR /app
 
@@ -22,6 +24,11 @@ COPY --from=builder /app/target/release/dtr /app/dtr
 COPY migrations ./migrations
 COPY templates ./templates
 COPY static ./static
+
+RUN mkdir -p /data/uploads \
+    && chown -R dtr:dtr /app /data/uploads
+
+USER dtr
 
 EXPOSE 8080
 

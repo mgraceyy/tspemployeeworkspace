@@ -2,12 +2,16 @@
 {% block page %}
 <section class="page-header">
   <h1>Employees</h1>
+  {% if content.no_department_count > 0 %}
+  <p class="muted">{{ content.no_department_count }} active employee(s) have no department — assign one so Team EOD works.</p>
+  {% endif %}
 </section>
 
 <div class="grid-2">
   <section class="panel">
     <h2>Add Employee</h2>
     <form method="post" action="/admin/employees" class="stack">
+      {% include "partials/csrf_field.html" %}
       <label>Employee Code <input type="text" name="employee_code" required></label>
       <label>Full Name <input type="text" name="full_name" required></label>
       <label>PIN <input type="password" name="pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}"></label>
@@ -22,10 +26,8 @@
       <label>Manager
         <select name="manager_id">
           <option value="">None</option>
-          {% for emp in content.employees %}
-          {% if emp.role == "manager" or emp.role == "admin" %}
-          <option value="{{ emp.id }}">{{ emp.full_name }}</option>
-          {% endif %}
+          {% for mgr in content.managers %}
+          <option value="{{ mgr.id }}">{{ mgr.full_name }}</option>
           {% endfor %}
         </select>
       </label>
@@ -34,28 +36,96 @@
   </section>
 
   <section class="panel">
-    <h2>All Employees</h2>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Code</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          {% for emp in content.employees %}
-          <tr>
-            <td>{{ emp.employee_code }}</td>
-            <td>{{ emp.full_name }}</td>
-            <td>{{ emp.role }}</td>
-            <td>{% if emp.is_active %}<span class="badge badge-approved">Active</span>{% else %}<span class="badge badge-rejected">Inactive</span>{% endif %}</td>
-            <td class="actions">
-              <a href="/admin/employees/{{ emp.id }}">Edit</a>
-              <a href="/admin/shifts/{{ emp.id }}">Shifts</a>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <h2>Bulk Assign Department</h2>
+    <p class="hint">Select employees in the table below, then assign a department for Team EOD visibility.</p>
+    <form method="post" action="/admin/employees/bulk-department" class="stack" id="bulk-dept-form">
+      {% include "partials/csrf_field.html" %}
+      <label>Department
+        <input type="text" name="department" list="department-options" required placeholder="e.g. Engineering">
+      </label>
+      <datalist id="department-options">
+        {% for dept in content.departments %}
+        <option value="{{ dept }}">
+        {% endfor %}
+      </datalist>
+      <button type="submit" class="btn btn-primary"
+        onclick="return document.querySelectorAll('.emp-select:checked').length > 0 || (alert('Select at least one employee.'), false);">
+        Apply to Selected
+      </button>
+    </form>
   </section>
 </div>
+
+<section class="panel">
+  <h2>All Employees</h2>
+  <form method="get" action="/admin/employees" class="search-bar stack">
+    <label>
+      Search
+      <input type="search" name="q" value="{{ content.pagination.search_query }}" placeholder="Code, name, or department">
+    </label>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Search</button>
+      {% if content.pagination.search_query %}
+      <a href="/admin/employees" class="btn">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all" title="Select all"></th>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Department</th>
+          <th>Requirements</th>
+          <th>Profile</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in content.employees %}
+        <tr>
+          <td>
+            {% if emp.is_active %}
+            <input type="checkbox" class="emp-select" name="employee_ids" value="{{ emp.id }}" form="bulk-dept-form">
+            {% endif %}
+          </td>
+          <td>{{ emp.employee_code }}</td>
+          <td>{{ emp.full_name }}</td>
+          <td>{{ emp.role }}</td>
+          <td>
+            {% if emp.no_department %}
+            <span class="badge badge-missing">Unset</span>
+            {% else %}
+            {{ emp.department }}
+            {% endif %}
+          </td>
+          <td>{{ emp.requirements_label }}</td>
+          <td>
+            <span class="badge {% if emp.profile_complete %}badge-approved{% else %}badge-submitted{% endif %}">
+              {{ emp.profile_pct }}%
+            </span>
+          </td>
+          <td>{% if emp.is_active %}<span class="badge badge-approved">Active</span>{% else %}<span class="badge badge-rejected">Inactive</span>{% endif %}</td>
+          <td class="actions">
+            <a href="/admin/employees/{{ emp.id }}">Edit</a>
+            <a href="/admin/employees/{{ emp.id }}/profile">Profile</a>
+            <a href="/admin/employees/{{ emp.id }}/requirements">Reqs</a>
+            <a href="/admin/shifts/{{ emp.id }}">Shifts</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "partials/pagination.html" %}
+</section>
+<script>
+  document.getElementById('select-all')?.addEventListener('change', function (e) {
+    document.querySelectorAll('.emp-select').forEach(function (cb) { cb.checked = e.target.checked; });
+  });
+</script>
 {% endblock %}

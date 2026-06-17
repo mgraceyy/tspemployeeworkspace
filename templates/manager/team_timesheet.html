@@ -2,8 +2,19 @@
 {% block page %}
 <section class="page-header">
   <h1>{{ content.employee.full_name }}</h1>
-  <p class="muted">{{ content.employee.employee_code }} · Last 30 days</p>
-  <a href="/manager/team/{{ content.employee.id }}/correct" class="btn btn-primary">Add Missing Entry</a>
+  <p class="muted">{{ content.employee.employee_code }} · {{ content.start_date }} to {{ content.end_date }}</p>
+  <div class="header-actions">
+    <a href="/manager/team/{{ content.employee.id }}/correct" class="btn btn-primary">Add Missing Entry</a>
+    <a href="/manager/team/{{ content.employee.id }}/export.csv{{ content.export_query }}" class="btn">Download CSV</a>
+  </div>
+</section>
+
+<section class="panel narrow-panel">
+  <form method="get" action="/manager/team/{{ content.employee.id }}" class="stack">
+    <label>Start <input type="date" name="start" value="{{ content.start_date }}"></label>
+    <label>End <input type="date" name="end" value="{{ content.end_date }}"></label>
+    <button type="submit" class="btn btn-primary">Apply range</button>
+  </form>
 </section>
 
 <div class="table-wrap">
@@ -30,10 +41,10 @@
         <td>{{ entry.ot }}</td>
         <td><span class="badge badge-{{ entry.ot_status }}">{{ entry.ot_status }}</span></td>
         <td>{{ entry.attendance }}</td>
-        <td><a href="/manager/correct/{{ entry.id }}">Correct</a></td>
+        <td>{% if entry.id != "" %}<a href="/manager/correct/{{ entry.id }}">Correct</a>{% else %}—{% endif %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="muted">No entries yet.</td></tr>
+      <tr><td colspan="8" class="muted">No entries in this date range.</td></tr>
       {% endfor %}
     </tbody>
   </table>

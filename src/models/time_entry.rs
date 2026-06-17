@@ -13,6 +13,37 @@ pub enum AttendanceStatus {
     Absent,
     NoShow,
     Partial,
+    SickLeave,
+    Vacation,
+    OfficialLeave,
+    Offset,
+}
+
+impl AttendanceStatus {
+    pub fn is_planned_leave(self) -> bool {
+        matches!(
+            self,
+            AttendanceStatus::SickLeave
+                | AttendanceStatus::Vacation
+                | AttendanceStatus::OfficialLeave
+                | AttendanceStatus::Offset
+        )
+    }
+
+    pub fn is_manager_markable(self) -> bool {
+        matches!(
+            self,
+            AttendanceStatus::NoShow
+                | AttendanceStatus::SickLeave
+                | AttendanceStatus::Vacation
+                | AttendanceStatus::OfficialLeave
+                | AttendanceStatus::Offset
+        )
+    }
+
+    pub fn is_unexcused_absence(self) -> bool {
+        matches!(self, AttendanceStatus::NoShow | AttendanceStatus::Absent)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -50,6 +81,7 @@ pub struct TimeEntry {
     pub ot_reviewed_by: Option<Uuid>,
     pub ot_reviewed_at: Option<time::OffsetDateTime>,
     pub ot_note: Option<String>,
+    pub ot_request_reason: Option<String>,
     pub attendance: Option<AttendanceStatus>,
     pub created_at: time::OffsetDateTime,
 }
@@ -69,6 +101,7 @@ pub struct TimeEntryWithEmployee {
     pub ot_minutes: i32,
     pub ot_status: OtStatus,
     pub ot_note: Option<String>,
+    pub ot_request_reason: Option<String>,
     pub attendance: Option<AttendanceStatus>,
 }
 

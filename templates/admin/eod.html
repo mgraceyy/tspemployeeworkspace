@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Unlock EOD</h1>
+  <p class="muted">Revert today's submitted EOD reports to draft so employees can edit again.</p>
+  <p class="muted">Today: {{ content.today }}</p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Department</th><th>Summary</th><th>Submitted</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      {% for report in content.reports %}
+      <tr>
+        <td>{{ report.full_name }} ({{ report.employee_code }})</td>
+        <td>{{ report.department or "—" }}</td>
+        <td>{{ report.summary or "—" }}</td>
+        <td>{{ report.submitted_at or "—" }}</td>
+        <td>
+          <form method="post" action="/admin/eod/{{ report.id }}/unlock"
+            onsubmit="return confirm('Unlock this EOD so the employee can edit again?');">
+            {% include "partials/csrf_field.html" %}
+            <button type="submit" class="btn btn-small btn-danger">Unlock</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No submitted EOD reports for today.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -15,10 +15,7 @@ pub struct HealthResponse {
 }
 
 pub async fn health(State(state): State<AppState>) -> Response {
-    let database_ok = sqlx::query("SELECT 1")
-        .execute(&state.pool)
-        .await
-        .is_ok();
+    let database_ok = sqlx::query("SELECT 1").execute(&state.pool).await.is_ok();
 
     let (status, body) = if database_ok {
         (

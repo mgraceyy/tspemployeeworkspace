@@ -11,6 +11,7 @@
   <div class="alert alert-error">{{ content.error }}</div>
   {% endif %}
   <form method="post" action="/change-pin" class="stack">
+    {% include "partials/csrf_field.html" %}
     {% if not content.forced %}
     <label>
       Current PIN

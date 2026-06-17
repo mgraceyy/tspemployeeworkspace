@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Notifications</h1>
+  <p class="muted">In-app reminders — no email is sent. Dismiss to hide until the situation changes.</p>
+</section>
+
+{% if content.notifications %}
+<form method="post" action="/notifications/dismiss-all" class="inline-form" style="margin-bottom: 1rem;">
+  {% include "partials/csrf_field.html" %}
+  {% for note in content.notifications %}
+  <input type="hidden" name="keys" value="{{ note.key }}">
+  {% endfor %}
+  <button type="submit" class="btn btn-small">Dismiss all</button>
+</form>
+
+<ul class="notification-list">
+  {% for note in content.notifications %}
+  <li class="notification-item notification-{{ note.severity }}">
+    <div class="notification-body">
+      <strong>{{ note.title }}</strong>
+      <p class="muted">{{ note.message }}</p>
+    </div>
+    <div class="actions">
+      <a href="{{ note.href }}" class="btn btn-small btn-primary">View</a>
+      <form method="post" action="/notifications/dismiss" class="inline-form">
+        {% include "partials/csrf_field.html" %}
+        <input type="hidden" name="key" value="{{ note.key }}">
+        <button type="submit" class="btn btn-small">Dismiss</button>
+      </form>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<section class="panel">
+  <p class="muted">You're all caught up — no notifications right now.</p>
+</section>
+{% endif %}
+{% endblock %}

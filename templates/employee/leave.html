@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Leave Requests</h1>
+  <p class="muted">Request sick leave, vacation, official leave, or offset time. Your manager will review before it is applied.</p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>New request</h2>
+  <form method="post" action="/me/leave" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>Start date <input type="date" name="start_date" required></label>
+    <label>End date <input type="date" name="end_date" required></label>
+    <label>Leave type
+      <select name="leave_type" required>
+        <option value="sick_leave">Sick leave</option>
+        <option value="vacation">Vacation</option>
+        <option value="official_leave">Official leave</option>
+        <option value="offset">Offset</option>
+      </select>
+    </label>
+    <label>Reason (required) <input type="text" name="reason" required placeholder="Brief explanation for your manager"></label>
+    <button type="submit" class="btn btn-primary">Submit request</button>
+  </form>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Dates</th><th>Type</th><th>Reason</th><th>Status</th><th>Manager note</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for req in content.requests %}
+      <tr>
+        <td>{{ req.start_date }} — {{ req.end_date }}</td>
+        <td>{{ req.leave_type }}</td>
+        <td>{{ req.reason or "—" }}</td>
+        <td>{{ req.status }}</td>
+        <td>{{ req.reviewer_note or "—" }}</td>
+        <td>
+          {% if req.can_cancel %}
+          <form method="post" action="/me/leave/{{ req.id }}/cancel" class="inline-form">
+            {% include "partials/csrf_field.html" %}
+            <button type="submit" class="btn btn-small btn-danger">Cancel</button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No leave requests yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

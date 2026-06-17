@@ -1,0 +1,260 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shared_rate_limits: ["false", "true"]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dtr
+          POSTGRES_USER: dtr
+          POSTGRES_PASSWORD: dtr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtr -d dtr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://dtr:dtr@localhost:5432/dtr
+      SESSION_SECRET: ci-test-secret-at-least-64-characters-long-for-signed-cookies-ok
+      SEED_DEFAULT_ADMIN: "false"
+      SHARED_RATE_LIMITS: ${{ matrix.shared_rate_limits }}
+      RUST_LOG: dtr=warn,tower_http=warn,sqlx=warn
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+      - name: License and dependency policy
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        env:
+          RUST_TEST_THREADS: "1"
+        run: cargo test
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dtr
+          POSTGRES_USER: dtr
+          POSTGRES_PASSWORD: dtr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtr -d dtr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://dtr:dtr@localhost:5432/dtr
+      SESSION_SECRET: ci-test-secret-at-least-64-characters-long-for-signed-cookies-ok
+      SEED_DEFAULT_ADMIN: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t dtr:ci .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name dtr-ci \
+            -p 18080:8080 \
+            -e DATABASE_URL \
+            -e SESSION_SECRET \
+            -e SEED_DEFAULT_ADMIN \
+            dtr:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:18080/health; then
+              break
+            fi
+            sleep 2
+            if [[ $i -eq 30 ]]; then
+              docker logs dtr-ci
+              exit 1
+            fi
+          done
+          curl -sf http://localhost:18080/login | grep -qi "login"
+          curl -sf -o /dev/null -w "%{http_code}" http://localhost:18080/static/style.css | grep -q "200"
+          curl -sf http://localhost:18080/metrics | grep -q "dtr_http_requests_total"
+          docker stop dtr-ci
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dtr
+          POSTGRES_USER: dtr
+          POSTGRES_PASSWORD: dtr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtr -d dtr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://dtr:dtr@localhost:5432/dtr
+      SESSION_SECRET: ci-test-secret-at-least-64-characters-long-for-signed-cookies-ok
+      SEED_DEFAULT_ADMIN: "true"
+      SEED_E2E_FIXTURES: "true"
+      E2E_BASE_URL: http://127.0.0.1:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build and start app
+        run: |
+          cargo build --release
+          ./target/release/dtr &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Install Playwright and run E2E tests
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+  verify-backup:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dtr
+          POSTGRES_USER: dtr
+          POSTGRES_PASSWORD: dtr
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtr -d dtr"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://dtr:dtr@localhost:5432/dtr
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Migrate database
+        run: cargo run --release --bin dtr-migrate
+
+      - name: Create and verify backup artifact
+        run: |
+          ./scripts/backup-db.sh ci-backup.sql
+          ./scripts/verify-backup.sh ci-backup.sql
+
+      - name: Restore drill
+        run: |
+          ADMIN_URL="${DATABASE_URL%/*}/postgres"
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'dtr' AND pid <> pg_backend_pid();"
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS dtr;"
+          psql "$ADMIN_URL" -v ON_ERROR_STOP=1 -c "CREATE DATABASE dtr;"
+          ./scripts/restore-db.sh ci-backup.sql --yes
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT COUNT(*) >= 10 AS enough_tables FROM information_schema.tables WHERE table_schema = 'public';"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT to_regclass('public.employees') IS NOT NULL AS employees_table_ok;"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT to_regclass('public.company_settings') IS NOT NULL AS settings_table_ok;"
+
+      - name: Uploads restore drill
+        run: |
+          RESTORE_DIR="/tmp/ci-uploads-restore"
+          mkdir -p "$RESTORE_DIR"
+          echo "drill-marker" > "$RESTORE_DIR/marker.txt"
+          tar -czf uploads-drill.tar.gz -C /tmp ci-uploads-restore
+          rm -rf "$RESTORE_DIR"
+          UPLOAD_DIR="$RESTORE_DIR" ./scripts/restore-uploads.sh uploads-drill.tar.gz "$RESTORE_DIR" --yes
+          grep -q "drill-marker" "$RESTORE_DIR/marker.txt"
+
+      - name: Full DR drill — start app on restored data
+        env:
+          SESSION_SECRET: ci-test-secret-at-least-64-characters-long-for-signed-cookies-ok
+          SEED_DEFAULT_ADMIN: "false"
+          UPLOAD_DIR: /tmp/ci-uploads-restore
+        run: |
+          cargo build --release
+          ./target/release/dtr &
+          APP_PID=$!
+          trap 'kill $APP_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8080/health; then
+              curl -sf http://127.0.0.1:8080/health | grep -q '"status":"ok"'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App failed to become healthy after restore"
+          exit 1

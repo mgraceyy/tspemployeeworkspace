@@ -11,6 +11,7 @@
   {% endif %}
 
   <form method="post" action="/manager/correct" class="stack">
+    {% include "partials/csrf_field.html" %}
     {% if content.form.entry_id %}
     <input type="hidden" name="entry_id" value="{{ content.form.entry_id }}">
     {% endif %}

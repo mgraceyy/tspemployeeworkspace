@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Team Requirements</h1>
+  <p class="muted">Submitted requirements waiting for manager review.</p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Requirement</th><th>Submitted</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for row in content.pending %}
+      <tr>
+        <td><strong>{{ row.full_name }}</strong><br><span class="muted">{{ row.employee_code }}</span></td>
+        <td>{{ row.type_name }}</td>
+        <td>{{ row.submitted_at or "—" }}</td>
+        <td><a href="/manager/team/{{ row.employee_id }}/requirements" class="btn btn-small btn-primary">Review</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">No requirements awaiting review.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

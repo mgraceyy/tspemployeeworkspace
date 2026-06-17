@@ -50,6 +50,8 @@ mod tests {
             ot_threshold_minutes: 480,
             grace_minutes: 5,
             pay_period: PayPeriodType::Semimonthly,
+            pay_period_anchor: time::Date::from_calendar_date(2024, time::Month::January, 1)
+                .unwrap(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
         }

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>My Requirements</h1>
+  <p class="muted">Employment requirements checklist — upload documents or mark items as submitted when complete.</p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Requirement</th>
+        <th>Status</th>
+        <th>Notes / File</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for req in content.requirements %}
+      <tr>
+        <td>
+          <strong>{{ req.name }}</strong>
+          {% if req.is_required %}<span class="badge">Required</span>{% endif %}
+          {% if req.requires_upload %}<span class="badge">Upload</span>{% endif %}
+          {% if req.description %}<br><span class="muted">{{ req.description }}</span>{% endif %}
+        </td>
+        <td>
+          <span class="badge badge-{{ req.status_key }}">{{ req.status }}</span>
+          {% if req.expires_at and not req.is_expired %}
+          <br><span class="muted">Expires {{ req.expires_at }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if req.employee_note %}<span class="muted">You: {{ req.employee_note }}</span><br>{% endif %}
+          {% if req.admin_note %}<span class="muted">Admin: {{ req.admin_note }}</span><br>{% endif %}
+          {% if req.has_file %}
+          <a href="/me/requirements/{{ req.id }}/file">{{ req.file_name }}</a>
+          {% if req.file_size %}<span class="muted"> ({{ req.file_size }})</span>{% endif %}
+          <br>
+          {% endif %}
+          {% if req.is_expired %}<span class="muted">This requirement has expired — please re-submit.</span>{% endif %}
+        </td>
+        <td>
+          {% if req.can_submit %}
+          <form method="post" action="/me/requirements/{{ req.id }}/submit" enctype="multipart/form-data" class="stack narrow-inline">
+            {% include "partials/csrf_field.html" %}
+            {% if req.requires_upload %}
+            <label class="file-upload-label">
+              <span class="muted">Document (PDF, JPG, PNG, WEBP, DOC, DOCX — max 10 MB)</span>
+              <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,application/pdf,image/*" {% if not req.has_file %}required{% endif %}>
+            </label>
+            {% endif %}
+            <input type="text" name="note" placeholder="Optional note" class="input-small">
+            <button type="submit" class="btn btn-small btn-primary">
+              {% if req.requires_upload %}Upload &amp; Submit{% else %}Mark Submitted{% endif %}
+            </button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">No requirements assigned yet. Your admin may still be setting up requirement types.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

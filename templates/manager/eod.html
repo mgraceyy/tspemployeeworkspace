@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Team EOD Status</h1>
+  <p class="muted">Today: {{ content.today }}</p>
+  <p><a href="/manager/eod/export.csv" class="btn btn-small">Download weekly CSV</a></p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Clocked In</th><th>EOD</th><th>View</th></tr>
+    </thead>
+    <tbody>
+      {% for member in content.team %}
+      <tr>
+        <td>{{ member.full_name }} ({{ member.employee_code }})</td>
+        <td>{% if member.clocked_in %}Yes{% else %}No{% endif %}</td>
+        <td>{{ member.eod_status }}</td>
+        <td>
+          {% if member.eod_status != "—" %}
+          <a href="/manager/eod/{{ member.employee_id }}" class="btn btn-small btn-primary">View</a>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">No team members.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

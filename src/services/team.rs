@@ -4,7 +4,9 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{AttendanceStatus, EmployeeSummary, TimeEntry};
-use crate::services::timezone::{combine_date_time, manila_date_now, now_manila};
+use crate::services::holidays::is_holiday;
+use crate::services::settings::get_settings;
+use crate::services::timezone::{combine_date_time, company_date_now, now_company};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct TeamAttendanceRow {
@@ -31,7 +33,9 @@ pub struct TeamMemberStatus {
     pub shift_start: Option<Time>,
     pub shift_end: Option<Time>,
     pub status: String,
+    pub shift_note: Option<String>,
     pub can_mark_no_show: bool,
+    pub can_mark_absence: bool,
 }
 
 pub async fn assert_can_manage(
@@ -44,14 +48,13 @@ pub async fn assert_can_manage(
         return Ok(());
     }
 
-    let manager_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT manager_id FROM employees WHERE id = $1 AND is_active = TRUE",
-    )
-    .bind(employee_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?
-    .ok_or(AppError::NotFound)?;
+    let manager_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT manager_id FROM employees WHERE id = $1 AND is_active = TRUE")
+            .bind(employee_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?
+            .ok_or(AppError::NotFound)?;
 
     if manager_id == Some(actor_id) {
         Ok(())
@@ -94,10 +97,14 @@ pub async fn list_team_attendance_today(
     pool: &PgPool,
     manager_id: Uuid,
     is_admin: bool,
+    grace_minutes: i32,
 ) -> AppResult<Vec<TeamMemberStatus>> {
-    let today = manila_date_now();
+    let settings = get_settings(pool).await?;
+    let today = company_date_now(&settings)?;
     let day_of_week = today.weekday().number_days_from_sunday() as i16;
-    let now = now_manila();
+    let now = now_company(&settings)?;
+    let holiday_today = is_holiday(pool, today).await?;
+    let timezone = settings.timezone.clone();
 
     let rows = if is_admin {
         sqlx::query_as::<_, TeamAttendanceRow>(
@@ -140,9 +147,12 @@ pub async fn list_team_attendance_today(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let status = derive_status(&row, today, now);
-            let can_mark_no_show = row.clock_in.is_none()
-                && row.attendance != Some(AttendanceStatus::NoShow);
+            let status = derive_status(&row, today, now, holiday_today, &timezone);
+            let shift_note = compute_shift_note(&row, today, now, grace_minutes, &timezone);
+            let absence_marked = row
+                .attendance
+                .is_some_and(AttendanceStatus::is_manager_markable);
+            let can_mark_absence = row.clock_in.is_none() && !absence_marked;
             TeamMemberStatus {
                 employee_id: row.employee_id,
                 employee_code: row.employee_code,
@@ -154,23 +164,90 @@ pub async fn list_team_attendance_today(
                 shift_start: row.shift_start,
                 shift_end: row.shift_end,
                 status,
-                can_mark_no_show,
+                shift_note,
+                can_mark_no_show: can_mark_absence,
+                can_mark_absence,
             }
         })
         .collect())
 }
 
-fn derive_status(row: &TeamAttendanceRow, work_date: Date, now: OffsetDateTime) -> String {
+fn compute_shift_note(
+    row: &TeamAttendanceRow,
+    work_date: Date,
+    now: OffsetDateTime,
+    grace_minutes: i32,
+    timezone: &str,
+) -> Option<String> {
+    let (Some(start), Some(end)) = (row.shift_start, row.shift_end) else {
+        return Some("No shift scheduled".into());
+    };
+    let shift_start = combine_date_time(work_date, start, timezone).ok()?;
+    let grace_limit = shift_start + time::Duration::minutes(grace_minutes as i64);
+    let shift_label = format!(
+        "{:02}:{:02}–{:02}:{:02}",
+        start.hour(),
+        start.minute(),
+        end.hour(),
+        end.minute()
+    );
+
+    if let Some(clock_in) = row.clock_in {
+        if clock_in > grace_limit {
+            let late_mins = (clock_in - shift_start).whole_minutes();
+            return Some(format!("Late ({late_mins} min) · shift {shift_label}"));
+        }
+        return Some(format!("On time · shift {shift_label}"));
+    }
+
+    if row.attendance.is_none() && now > grace_limit {
+        return Some(format!("Missing punch · shift {shift_label}"));
+    }
+
+    Some(format!("Shift {shift_label}"))
+}
+
+fn derive_status(
+    row: &TeamAttendanceRow,
+    work_date: Date,
+    now: OffsetDateTime,
+    holiday_today: bool,
+    timezone: &str,
+) -> String {
+    if row.attendance == Some(AttendanceStatus::Late) {
+        return "late".into();
+    }
+    if row.attendance == Some(AttendanceStatus::Partial) {
+        return "partial".into();
+    }
+    if row.attendance == Some(AttendanceStatus::OnTime) && row.clock_out.is_some() {
+        return "completed".into();
+    }
+    if row.attendance == Some(AttendanceStatus::SickLeave) {
+        return "sick_leave".into();
+    }
+    if row.attendance == Some(AttendanceStatus::Vacation) {
+        return "vacation".into();
+    }
+    if row.attendance == Some(AttendanceStatus::OfficialLeave) {
+        return "official_leave".into();
+    }
+    if row.attendance == Some(AttendanceStatus::Offset) {
+        return "offset".into();
+    }
     if row.attendance == Some(AttendanceStatus::NoShow) {
         return "no_show".into();
     }
     if row.attendance == Some(AttendanceStatus::Absent) {
         return "absent".into();
     }
+    if holiday_today && row.clock_in.is_none() {
+        return "holiday".into();
+    }
     match (row.clock_in, row.clock_out) {
         (None, _) => {
             if let (Some(start), Some(end)) = (row.shift_start, row.shift_end) {
-                let shift_end = combine_date_time(work_date, end);
+                let shift_end = combine_date_time(work_date, end, timezone).unwrap_or(now);
                 if now > shift_end {
                     return "absent".into();
                 }
@@ -183,10 +260,7 @@ fn derive_status(row: &TeamAttendanceRow, work_date: Date, now: OffsetDateTime) 
     }
 }
 
-pub async fn get_employee_summary(
-    pool: &PgPool,
-    employee_id: Uuid,
-) -> AppResult<EmployeeSummary> {
+pub async fn get_employee_summary(pool: &PgPool, employee_id: Uuid) -> AppResult<EmployeeSummary> {
     sqlx::query_as::<_, EmployeeSummary>(
         "SELECT id, employee_code, full_name, role, manager_id, is_active
          FROM employees WHERE id = $1",
@@ -207,7 +281,8 @@ pub async fn get_entry_if_manageable(
     let entry = sqlx::query_as::<_, TimeEntry>(
         "SELECT id, employee_id, work_date, clock_in, clock_out,
                 gross_minutes, net_minutes, regular_minutes, ot_minutes,
-                ot_status, ot_reviewed_by, ot_reviewed_at, ot_note, attendance, created_at
+                ot_status, ot_reviewed_by, ot_reviewed_at, ot_note, ot_request_reason,
+                attendance, created_at
          FROM time_entries WHERE id = $1",
     )
     .bind(entry_id)

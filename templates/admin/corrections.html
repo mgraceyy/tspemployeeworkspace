@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Correction Audit Log</h1>
+  <p class="muted">Recent manual time corrections by managers and admins.</p>
+</section>
+
+<form method="get" action="/admin/corrections" class="search-bar stack narrow-panel">
+  <label>
+    Search
+    <input type="search" name="q" value="{{ content.pagination.search_query }}" placeholder="Employee, editor, or reason">
+  </label>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Search</button>
+    {% if content.pagination.search_query %}
+    <a href="/admin/corrections" class="btn">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Employee</th>
+        <th>Work date</th>
+        <th>Editor</th>
+        <th>Reason</th>
+        <th>Old in/out</th>
+        <th>New in/out</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in content.logs %}
+      <tr>
+        <td>{{ log.created_at }}</td>
+        <td>{{ log.employee_code }}<br><span class="muted">{{ log.employee_name }}</span></td>
+        <td>{{ log.work_date }}</td>
+        <td>{{ log.editor_name }}</td>
+        <td>{{ log.reason }}</td>
+        <td>
+          {% if log.old_clock_in %}{{ log.old_clock_in }}{% else %}—{% endif %}
+          {% if log.old_clock_out %} / {{ log.old_clock_out }}{% endif %}
+        </td>
+        <td>
+          {% if log.new_clock_in %}{{ log.new_clock_in }}{% else %}—{% endif %}
+          {% if log.new_clock_out %} / {{ log.new_clock_out }}{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">No corrections recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "partials/pagination.html" %}
+{% endblock %}

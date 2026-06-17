@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>{{ content.full_name }} — EOD</h1>
+  <p class="muted">{{ content.report_date }} · Submitted {{ content.submitted_at }}</p>
+  <p><a href="/me/team/eod">← Back to Team EOD</a></p>
+</section>
+
+<section class="panel">
+  {% if content.summary %}<p>{{ content.summary }}</p>{% endif %}
+  {% if content.tasks %}
+  <ul class="eod-task-list">
+    {% for task in content.tasks %}
+    <li><span class="badge">{{ task.kind }}</span> {{ task.title }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No tasks listed.</p>
+  {% endif %}
+</section>
+{% endblock %}

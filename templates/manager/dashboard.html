@@ -5,8 +5,26 @@
   <p class="muted">Today: {{ content.today }} · Asia/Manila</p>
 </section>
 
+{% if content.pending_count > 0 or content.missing_eod_count > 0 %}
+<div class="summary-cards">
+  {% if content.missing_eod_count > 0 %}
+  <a href="/manager/eod" class="summary-card summary-card-alert">
+    <span class="summary-card-value">{{ content.missing_eod_count }}</span>
+    <span class="summary-card-label">Missing EOD today</span>
+  </a>
+  {% endif %}
+  {% if content.pending_count > 0 %}
+  <div class="summary-card summary-card-alert">
+    <span class="summary-card-value">{{ content.pending_count }}</span>
+    <span class="summary-card-label">Pending OT approvals</span>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <section class="panel">
   <h2>Team Attendance Today</h2>
+  <p class="hint">Use <strong>Offset</strong> when absence will be made up with hours worked on another day.</p>
   {% if content.attendance %}
   <div class="table-wrap">
     <table>
@@ -14,6 +32,7 @@
         <tr>
           <th>Employee</th>
           <th>Shift</th>
+          <th>Shift status</th>
           <th>In</th>
           <th>Out</th>
           <th>Status</th>
@@ -28,6 +47,7 @@
             ({{ member.employee_code }})
           </td>
           <td>{{ member.shift }}</td>
+          <td class="muted">{{ member.shift_note }}</td>
           <td>{{ member.clock_in }}</td>
           <td>{{ member.clock_out }}</td>
           <td><span class="badge badge-{{ member.status }}">{{ member.status_label }}</span></td>
@@ -37,10 +57,18 @@
             {% elif member.can_correct %}
             <a href="/manager/team/{{ member.employee_id }}/correct" class="btn btn-small btn-primary">Add Entry</a>
             {% endif %}
-            {% if member.can_mark_no_show %}
-            <form method="post" action="/manager/no-show" class="inline-form">
+            {% if member.can_mark_absence %}
+            <form method="post" action="/manager/absence" class="inline-form actions">
+              {% include "partials/csrf_field.html" %}
               <input type="hidden" name="employee_id" value="{{ member.employee_id }}">
-              <button type="submit" class="btn btn-small btn-danger">No-Show</button>
+              <select name="absence_type" class="input-small">
+                <option value="no_show">No-show</option>
+                <option value="sick_leave">Sick leave</option>
+                <option value="vacation">Vacation</option>
+                <option value="official_leave">Official leave</option>
+                <option value="offset">Offset</option>
+              </select>
+              <button type="submit" class="btn btn-small btn-danger">Mark</button>
             </form>
             {% endif %}
           </td>
@@ -54,8 +82,13 @@
   {% endif %}
 </section>
 
-<section class="panel">
-  <h2>Pending OT Approvals</h2>
+<section class="panel{% if content.pending_count > 0 %} panel-highlight{% endif %}">
+  <h2>
+    Pending OT Approvals
+    {% if content.pending_count > 0 %}
+    <span class="nav-badge">{{ content.pending_count }}</span>
+    {% endif %}
+  </h2>
   {% if content.pending_ot %}
   <div class="table-wrap">
     <table>
@@ -65,6 +98,7 @@
           <th>Date</th>
           <th>Regular</th>
           <th>OT</th>
+          <th>OT reason</th>
           <th>In</th>
           <th>Out</th>
           <th>Actions</th>
@@ -77,14 +111,17 @@
           <td>{{ entry.work_date }}</td>
           <td>{{ entry.regular }}</td>
           <td>{{ entry.ot }}</td>
+          <td>{{ entry.ot_reason }}</td>
           <td>{{ entry.clock_in }}</td>
           <td>{{ entry.clock_out }}</td>
           <td class="actions">
             <form method="post" action="/manager/ot/{{ entry.id }}/review" class="inline-form">
+              {% include "partials/csrf_field.html" %}
               <input type="hidden" name="action" value="approve">
               <button type="submit" class="btn btn-small btn-primary">Approve</button>
             </form>
             <form method="post" action="/manager/ot/{{ entry.id }}/review" class="inline-form">
+              {% include "partials/csrf_field.html" %}
               <input type="hidden" name="action" value="reject">
               <input type="text" name="note" placeholder="Reason (optional)" class="input-small">
               <button type="submit" class="btn btn-small btn-danger">Reject</button>
@@ -97,6 +134,22 @@
   </div>
   {% else %}
   <p class="muted">No pending overtime approvals.</p>
+  {% endif %}
+</section>
+
+<section class="panel{% if content.missing_eod_count > 0 %} panel-highlight{% endif %}">
+  <h2>
+    EOD Status Today
+    {% if content.missing_eod_count > 0 %}
+    <span class="nav-badge">{{ content.missing_eod_count }}</span>
+    {% endif %}
+  </h2>
+  {% if content.missing_eod_count > 0 %}
+  <p>{{ content.missing_eod_count }} team member(s) clocked in but have not submitted EOD yet.</p>
+  <a href="/manager/eod" class="btn btn-small btn-primary">View Team EOD</a>
+  {% else %}
+  <p class="muted">Everyone who clocked in today has submitted EOD, or no one is clocked in yet.</p>
+  <a href="/manager/eod" class="btn btn-small">Team EOD</a>
   {% endif %}
 </section>
 {% endblock %}

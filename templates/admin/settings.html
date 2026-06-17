@@ -2,11 +2,35 @@
 {% block page %}
 <section class="page-header">
   <h1>Company Settings</h1>
-  <p class="muted">{{ content.settings.company_name }} · {{ content.settings.timezone }}</p>
 </section>
 
 <section class="panel">
   <form method="post" action="/admin/settings" class="stack narrow">
+    {% include "partials/csrf_field.html" %}
+    <label>Company name
+      <input type="text" name="company_name" value="{{ content.settings.company_name }}" required>
+    </label>
+    <label>Timezone
+      <input type="text" name="timezone" value="{{ content.settings.timezone }}" list="timezone-options" required autocomplete="off" placeholder="e.g. Asia/Manila">
+      <datalist id="timezone-options">
+        <option value="Asia/Manila">
+        <option value="Asia/Singapore">
+        <option value="Asia/Tokyo">
+        <option value="Asia/Hong_Kong">
+        <option value="Asia/Seoul">
+        <option value="Asia/Dubai">
+        <option value="Asia/Kolkata">
+        <option value="America/New_York">
+        <option value="America/Chicago">
+        <option value="America/Los_Angeles">
+        <option value="Europe/London">
+        <option value="Europe/Paris">
+        <option value="Australia/Sydney">
+        <option value="Pacific/Auckland">
+        <option value="UTC">
+      </datalist>
+    </label>
+    <p class="hint">IANA timezone for clock in/out, pay periods, EOD due dates, and reports. Any valid name (e.g. <code>Asia/Manila</code>) is accepted.</p>
     <label>Break deduction (minutes)
       <input type="number" name="break_minutes" value="{{ content.settings.break_minutes }}" required>
     </label>
@@ -24,7 +48,14 @@
         <option value="monthly" {% if content.settings.pay_period == "monthly" %}selected{% endif %}>Monthly</option>
       </select>
     </label>
-    <p class="hint">OT always requires manager approval. Reports use the selected pay period.</p>
+    <label>Biweekly period anchor
+      <input type="date" name="pay_period_anchor" value="{{ content.settings.pay_period_anchor }}" required>
+    </label>
+    <p class="hint">Biweekly reports start counting 14-day periods from this date.</p>
+    <label class="checkbox-label">
+      <input type="checkbox" name="ot_requires_approval" value="on" {% if content.settings.ot_requires_approval %}checked{% endif %}>
+      Overtime requires manager approval
+    </label>
     <button type="submit" class="btn btn-primary">Save Settings</button>
   </form>
 </section>

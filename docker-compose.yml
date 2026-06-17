@@ -22,9 +22,12 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://dtr:dtr@db:5432/dtr
-      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-random-string-at-least-64-characters-long-for-signed-cookies-ok}
-      SEED_DEFAULT_ADMIN: ${SEED_DEFAULT_ADMIN:-true}
+      SESSION_SECRET: ${SESSION_SECRET:?Copy .env.example to .env and set SESSION_SECRET (64+ random characters)}
+      SEED_DEFAULT_ADMIN: ${SEED_DEFAULT_ADMIN:-false}
+      UPLOAD_DIR: /data/uploads
       RUST_LOG: ${RUST_LOG:-dtr=info,tower_http=info,sqlx=warn}
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -35,5 +38,33 @@ services:
       retries: 5
       start_period: 30s
 
+  backup:
+    profiles: ["ops"]
+    image: postgres:16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: dtr
+      PGHOST: db
+      PGUSER: dtr
+      PGDATABASE: dtr
+      BACKUP_DIR: /backups
+      UPLOAD_DIR: /data/uploads
+      RETENTION_DAYS: "14"
+    volumes:
+      - ./backups:/backups
+      - uploads:/data/uploads:ro
+      - ./scripts/backup-scheduled.sh:/usr/local/bin/backup-scheduled.sh:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        while true; do
+          bash /usr/local/bin/backup-scheduled.sh
+          sleep 86400
+        done
+
 volumes:
   pgdata:
+  uploads:

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Requirement Types</h1>
+  <p class="muted">Define employment requirements for all employees.</p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>Add Requirement Type</h2>
+  <form method="post" action="/admin/requirements" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>Name <input type="text" name="name" required></label>
+    <label>Description <input type="text" name="description"></label>
+    <label class="checkbox-label"><input type="checkbox" name="is_required" checked> Required for all employees</label>
+    <label class="checkbox-label"><input type="checkbox" name="requires_upload"> Requires file upload</label>
+    <label>Sort order <input type="number" name="sort_order" value="0"></label>
+    <label>Expires after (days) <input type="number" name="expires_after_days" min="1" placeholder="Optional"></label>
+    <button type="submit" class="btn btn-primary">Add Type</button>
+  </form>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Description</th><th>Required</th><th>Upload</th><th>Active</th><th>Order</th><th>Expiry (days)</th><th>Edit</th></tr>
+    </thead>
+    <tbody>
+      {% for t in content.types %}
+      <tr>
+        <td colspan="8">
+          <form method="post" action="/admin/requirements" class="stack inline-edit-row">
+            {% include "partials/csrf_field.html" %}
+            <input type="hidden" name="type_id" value="{{ t.id }}">
+            <input type="text" name="name" value="{{ t.name }}" required>
+            <input type="text" name="description" value="{{ t.description }}">
+            <label class="checkbox-label"><input type="checkbox" name="is_required" {% if t.is_required %}checked{% endif %}> Required</label>
+            <label class="checkbox-label"><input type="checkbox" name="requires_upload" {% if t.requires_upload %}checked{% endif %}> Upload</label>
+            <label class="checkbox-label"><input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %}> Active</label>
+            <input type="number" name="sort_order" value="{{ t.sort_order }}">
+            <input type="number" name="expires_after_days" min="1" value="{{ t.expires_after_days or '' }}" placeholder="—">
+            <button type="submit" class="btn btn-small btn-primary">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted">No requirement types yet. Add one above — it will be assigned to all active employees automatically.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

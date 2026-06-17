@@ -1,4 +1,6 @@
 /target
+/uploads
+/backups
 .env
 terminals/
 agent-tools/

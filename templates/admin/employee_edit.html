@@ -3,13 +3,21 @@
 <section class="page-header">
   <h1>Edit Employee</h1>
   <p class="muted">{{ content.employee.employee_code }} · {% if content.employee.is_active %}Active{% else %}Inactive{% endif %}</p>
-  <p><a href="/admin/employees">← Back to employees</a></p>
+  <p>
+    <a href="/admin/employees">← Back to employees</a>
+    · <a href="/admin/employees/{{ content.employee.id }}/profile">Profile</a>
+    · <a href="/admin/employees/{{ content.employee.id }}/requirements">Requirements</a>
+  </p>
 </section>
 
 <div class="grid-2">
   <section class="panel">
     <h2>Details</h2>
     <form method="post" action="/admin/employees/{{ content.employee.id }}" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>Employee Code
+        <input type="text" name="employee_code" value="{{ content.employee.employee_code }}" required pattern="[A-Za-z0-9]+" style="text-transform: uppercase">
+      </label>
       <label>Full Name
         <input type="text" name="full_name" value="{{ content.employee.full_name }}" required>
       </label>
@@ -40,6 +48,7 @@
     <h2>Reset PIN</h2>
     <p class="hint">The employee will be required to change this PIN on next login.</p>
     <form method="post" action="/admin/employees/{{ content.employee.id }}/reset-pin" class="stack">
+      {% include "partials/csrf_field.html" %}
       <label>New PIN
         <input type="password" name="new_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}">
       </label>
@@ -54,6 +63,7 @@
   <p class="muted">You cannot deactivate your own account.</p>
   {% else %}
   <form method="post" action="/admin/employees/{{ content.employee.id }}/toggle-active" class="inline-form">
+    {% include "partials/csrf_field.html" %}
     {% if content.employee.is_active %}
     <button type="submit" class="btn btn-danger">Deactivate Employee</button>
     {% else %}

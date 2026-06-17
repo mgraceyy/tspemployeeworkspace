@@ -1,0 +1,20 @@
+{% if content.pagination.total > 0 %}
+<nav class="pagination-bar" aria-label="Pagination">
+  <p class="muted pagination-summary">
+    Showing page {{ content.pagination.page }} of {{ content.pagination.total_pages }}
+    ({{ content.pagination.total }} total)
+  </p>
+  <div class="pagination-actions">
+    {% if content.pagination.has_prev %}
+    <a href="{{ content.pagination.prev_url }}" class="btn btn-small">← Previous</a>
+    {% else %}
+    <span class="btn btn-small" aria-disabled="true">← Previous</span>
+    {% endif %}
+    {% if content.pagination.has_next %}
+    <a href="{{ content.pagination.next_url }}" class="btn btn-small">Next →</a>
+    {% else %}
+    <span class="btn btn-small" aria-disabled="true">Next →</span>
+    {% endif %}
+  </div>
+</nav>
+{% endif %}

@@ -5,13 +5,27 @@ use crate::auth::pin::hash_pin;
 use crate::error::{AppError, AppResult};
 use crate::models::{Employee, EmployeeSummary, UserRole};
 
+const WEAK_PINS: &[&str] = &[
+    "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999", "1234", "4321",
+    "1212", "6969", "1004", "2000", "12345", "11111", "123456", "654321", "000000", "123123",
+];
+
 pub fn validate_pin(pin: &str) -> AppResult<()> {
     let len = pin.len();
-    if (4..=6).contains(&len) && pin.chars().all(|c| c.is_ascii_digit()) {
-        Ok(())
-    } else {
-        Err(AppError::bad_request("PIN must be 4–6 digits"))
+    if !(4..=6).contains(&len) || !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err(AppError::bad_request("PIN must be 4–6 digits"));
     }
+    if WEAK_PINS.contains(&pin) {
+        return Err(AppError::bad_request(
+            "This PIN is too easy to guess — choose a different one",
+        ));
+    }
+    if pin.chars().all(|c| c == pin.chars().next().unwrap()) {
+        return Err(AppError::bad_request(
+            "PIN cannot be the same digit repeated — choose a different one",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn find_by_code(pool: &PgPool, employee_code: &str) -> AppResult<Option<Employee>> {
@@ -98,33 +112,50 @@ pub async fn create_employee(
         }
         AppError::Internal(e.into())
     })?;
+
+    crate::services::profile::ensure_profile(pool, employee.id).await?;
+    crate::services::requirements::seed_for_employee(pool, employee.id).await?;
+
     Ok(employee)
 }
 
 pub async fn update_employee(
     pool: &PgPool,
     employee_id: Uuid,
+    employee_code: &str,
     full_name: &str,
     role: UserRole,
     manager_id: Option<Uuid>,
 ) -> AppResult<EmployeeSummary> {
+    let employee_code = employee_code.trim().to_uppercase();
+    if employee_code.is_empty() {
+        return Err(AppError::bad_request("Employee code is required"));
+    }
     if full_name.trim().is_empty() {
         return Err(AppError::bad_request("Full name is required"));
     }
 
     let employee = sqlx::query_as::<_, EmployeeSummary>(
         "UPDATE employees
-         SET full_name = $2, role = $3, manager_id = $4
+         SET employee_code = $2, full_name = $3, role = $4, manager_id = $5
          WHERE id = $1
          RETURNING id, employee_code, full_name, role, manager_id, is_active",
     )
     .bind(employee_id)
+    .bind(&employee_code)
     .bind(full_name.trim())
     .bind(role)
     .bind(manager_id)
     .fetch_optional(pool)
     .await
-    .map_err(|e| AppError::Internal(e.into()))?
+    .map_err(|e| {
+        if let sqlx::Error::Database(db_err) = &e {
+            if db_err.constraint() == Some("employees_employee_code_key") {
+                return AppError::bad_request("Employee code already exists");
+            }
+        }
+        AppError::Internal(e.into())
+    })?
     .ok_or(AppError::NotFound)?;
 
     Ok(employee)
@@ -135,14 +166,12 @@ pub async fn set_employee_active(
     employee_id: Uuid,
     is_active: bool,
 ) -> AppResult<()> {
-    let updated = sqlx::query(
-        "UPDATE employees SET is_active = $2 WHERE id = $1",
-    )
-    .bind(employee_id)
-    .bind(is_active)
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
+    let updated = sqlx::query("UPDATE employees SET is_active = $2 WHERE id = $1")
+        .bind(employee_id)
+        .bind(is_active)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -150,21 +179,16 @@ pub async fn set_employee_active(
     Ok(())
 }
 
-pub async fn reset_employee_pin(
-    pool: &PgPool,
-    employee_id: Uuid,
-    new_pin: &str,
-) -> AppResult<()> {
+pub async fn reset_employee_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str) -> AppResult<()> {
     validate_pin(new_pin)?;
     let pin_hash = hash_pin(new_pin)?;
-    let updated = sqlx::query(
-        "UPDATE employees SET pin_hash = $2, must_change_pin = TRUE WHERE id = $1",
-    )
-    .bind(employee_id)
-    .bind(pin_hash)
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
+    let updated =
+        sqlx::query("UPDATE employees SET pin_hash = $2, must_change_pin = TRUE WHERE id = $1")
+            .bind(employee_id)
+            .bind(pin_hash)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -172,21 +196,16 @@ pub async fn reset_employee_pin(
     Ok(())
 }
 
-pub async fn change_own_pin(
-    pool: &PgPool,
-    employee_id: Uuid,
-    new_pin: &str,
-) -> AppResult<()> {
+pub async fn change_own_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str) -> AppResult<()> {
     validate_pin(new_pin)?;
     let pin_hash = hash_pin(new_pin)?;
-    let updated = sqlx::query(
-        "UPDATE employees SET pin_hash = $2, must_change_pin = FALSE WHERE id = $1",
-    )
-    .bind(employee_id)
-    .bind(pin_hash)
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
+    let updated =
+        sqlx::query("UPDATE employees SET pin_hash = $2, must_change_pin = FALSE WHERE id = $1")
+            .bind(employee_id)
+            .bind(pin_hash)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
@@ -195,12 +214,11 @@ pub async fn change_own_pin(
 }
 
 pub async fn count_active_admins(pool: &PgPool) -> AppResult<i64> {
-    let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM employees WHERE is_active = TRUE AND role = 'admin'",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM employees WHERE is_active = TRUE AND role = 'admin'")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
     Ok(count.0)
 }
 
@@ -239,4 +257,114 @@ pub async fn seed_admin_if_empty(pool: &PgPool, seed_default_admin: bool) -> App
         "seeded default admin (ADMIN / 1234); change the PIN immediately after first login"
     );
     Ok(())
+}
+
+pub async fn seed_e2e_fixtures(pool: &PgPool, enabled: bool) -> AppResult<()> {
+    use crate::services::requirements::create_type;
+
+    if !enabled {
+        return Ok(());
+    }
+
+    let manager_id = if let Some(manager) = find_by_code(pool, "E2MGR").await? {
+        manager.id
+    } else {
+        let manager = create_employee(
+            pool,
+            "E2MGR",
+            "E2E Manager",
+            "482915",
+            UserRole::Manager,
+            None,
+        )
+        .await?;
+        tracing::info!("seeded E2E fixture manager (E2MGR / 482915)");
+        manager.id
+    };
+
+    if find_by_code(pool, "E2E001").await?.is_none() {
+        create_employee(
+            pool,
+            "E2E001",
+            "E2E Test Employee",
+            "482915",
+            UserRole::Employee,
+            Some(manager_id),
+        )
+        .await?;
+        tracing::info!("seeded E2E fixture employee (E2E001 / 482915)");
+    }
+
+    let doc_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM requirement_types WHERE name = 'E2E Test Document')",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    if !doc_exists {
+        create_type(
+            pool,
+            "E2E Test Document",
+            "Playwright upload smoke test",
+            true,
+            false,
+            1,
+            None,
+        )
+        .await?;
+        tracing::info!("seeded E2E requirement type (E2E Test Document)");
+    }
+
+    if let (Some(employee), Ok(settings)) = (
+        find_by_code(pool, "E2E001").await?,
+        crate::services::settings::get_settings(pool).await,
+    ) {
+        let today = crate::services::timezone::company_date_now(&settings)?;
+        let pending_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM time_entries
+                WHERE employee_id = $1 AND work_date = $2 AND ot_status = 'pending'
+            )",
+        )
+        .bind(employee.id)
+        .bind(today)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+        if !pending_exists {
+            sqlx::query(
+                "INSERT INTO time_entries
+                    (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_reason)
+                 VALUES ($1, $2, 480, 45, 'pending', 'on_time', 'E2E overtime')",
+            )
+            .bind(employee.id)
+            .bind(today)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+            tracing::info!("seeded E2E pending OT entry for E2E001");
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_weak_pins() {
+        assert!(validate_pin("1234").is_err());
+        assert!(validate_pin("1111").is_err());
+        assert!(validate_pin("12345").is_err());
+    }
+
+    #[test]
+    fn accepts_reasonable_pins() {
+        assert!(validate_pin("482915").is_ok());
+        assert!(validate_pin("7391").is_ok());
+    }
 }

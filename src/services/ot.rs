@@ -1,8 +1,10 @@
 use sqlx::PgPool;
+use time::Date;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{OtStatus, TimeEntryWithEmployee};
+use crate::services::timezone::format_date;
 
 pub async fn list_pending_for_manager(
     pool: &PgPool,
@@ -13,7 +15,8 @@ pub async fn list_pending_for_manager(
         sqlx::query_as::<_, TimeEntryWithEmployee>(
             "SELECT te.id, te.employee_id, e.employee_code, e.full_name, te.work_date,
                     te.clock_in, te.clock_out, te.gross_minutes, te.net_minutes,
-                    te.regular_minutes, te.ot_minutes, te.ot_status, te.ot_note, te.attendance
+                    te.regular_minutes, te.ot_minutes, te.ot_status, te.ot_note,
+                    te.ot_request_reason, te.attendance
              FROM time_entries te
              JOIN employees e ON e.id = te.employee_id
              WHERE te.ot_status = 'pending'
@@ -25,7 +28,8 @@ pub async fn list_pending_for_manager(
         sqlx::query_as::<_, TimeEntryWithEmployee>(
             "SELECT te.id, te.employee_id, e.employee_code, e.full_name, te.work_date,
                     te.clock_in, te.clock_out, te.gross_minutes, te.net_minutes,
-                    te.regular_minutes, te.ot_minutes, te.ot_status, te.ot_note, te.attendance
+                    te.regular_minutes, te.ot_minutes, te.ot_status, te.ot_note,
+                    te.ot_request_reason, te.attendance
              FROM time_entries te
              JOIN employees e ON e.id = te.employee_id
              WHERE te.ot_status = 'pending' AND e.manager_id = $1
@@ -38,6 +42,27 @@ pub async fn list_pending_for_manager(
     .map_err(|e| AppError::Internal(e.into()))?;
 
     Ok(entries)
+}
+
+pub async fn count_pending(pool: &PgPool, manager_id: Uuid, is_admin: bool) -> AppResult<i64> {
+    let count: (i64,) = if is_admin {
+        sqlx::query_as("SELECT COUNT(*) FROM time_entries WHERE ot_status = 'pending'")
+            .fetch_one(pool)
+            .await
+    } else {
+        sqlx::query_as(
+            "SELECT COUNT(*)
+             FROM time_entries te
+             JOIN employees e ON e.id = te.employee_id
+             WHERE te.ot_status = 'pending' AND e.manager_id = $1",
+        )
+        .bind(manager_id)
+        .fetch_one(pool)
+        .await
+    }
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    Ok(count.0)
 }
 
 pub async fn review_overtime(
@@ -71,6 +96,13 @@ pub async fn review_overtime(
         }
     }
 
+    let work_date: Date = sqlx::query_scalar("SELECT work_date FROM time_entries WHERE id = $1")
+        .bind(entry_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    crate::services::payroll_controls::assert_work_date_editable(pool, work_date).await?;
+
     let new_status = if approve {
         OtStatus::Approved
     } else {
@@ -94,4 +126,20 @@ pub async fn review_overtime(
     .map_err(|e| AppError::Internal(e.into()))?;
 
     Ok(())
+}
+
+pub async fn entry_audit_label(pool: &PgPool, entry_id: Uuid) -> AppResult<String> {
+    let row = sqlx::query_as::<_, (String, String, Date)>(
+        "SELECT e.full_name, e.employee_code, te.work_date
+         FROM time_entries te
+         JOIN employees e ON e.id = te.employee_id
+         WHERE te.id = $1",
+    )
+    .bind(entry_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?
+    .ok_or(AppError::NotFound)?;
+
+    Ok(format!("{} ({}) on {}", row.0, row.1, format_date(row.2)))
 }

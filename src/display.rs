@@ -25,14 +25,21 @@ pub struct OtPendingRow {
     pub ot: String,
     pub clock_in: String,
     pub clock_out: String,
+    pub ot_reason: String,
 }
 
-pub fn entry_row(entry: &TimeEntry) -> TimeEntryRow {
+pub fn entry_row(entry: &TimeEntry, tz: &str) -> TimeEntryRow {
     TimeEntryRow {
         id: entry.id.to_string(),
         work_date: format_date(entry.work_date),
-        clock_in: entry.clock_in.map(format_time).unwrap_or_else(|| "—".into()),
-        clock_out: entry.clock_out.map(format_time).unwrap_or_else(|| "—".into()),
+        clock_in: entry
+            .clock_in
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
+        clock_out: entry
+            .clock_out
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
         regular: entry
             .regular_minutes
             .map(format_minutes)
@@ -57,6 +64,10 @@ fn attendance_label(status: AttendanceStatus) -> String {
         AttendanceStatus::Absent => "absent".into(),
         AttendanceStatus::NoShow => "no show".into(),
         AttendanceStatus::Partial => "partial".into(),
+        AttendanceStatus::SickLeave => "sick leave".into(),
+        AttendanceStatus::Vacation => "vacation".into(),
+        AttendanceStatus::OfficialLeave => "official leave".into(),
+        AttendanceStatus::Offset => "offset".into(),
     }
 }
 
@@ -67,15 +78,17 @@ pub struct TeamStatusRow {
     pub full_name: String,
     pub entry_id: Option<String>,
     pub shift: String,
+    pub shift_note: String,
     pub clock_in: String,
     pub clock_out: String,
     pub status: String,
     pub status_label: String,
     pub can_mark_no_show: bool,
+    pub can_mark_absence: bool,
     pub can_correct: bool,
 }
 
-pub fn team_status_row(member: &TeamMemberStatus) -> TeamStatusRow {
+pub fn team_status_row(member: &TeamMemberStatus, tz: &str) -> TeamStatusRow {
     let shift = match (member.shift_start, member.shift_end) {
         (Some(s), Some(e)) => format!(
             "{:02}:{:02} – {:02}:{:02}",
@@ -93,11 +106,19 @@ pub fn team_status_row(member: &TeamMemberStatus) -> TeamStatusRow {
         full_name: member.full_name.clone(),
         entry_id: member.entry_id.map(|id| id.to_string()),
         shift,
-        clock_in: member.clock_in.map(format_time).unwrap_or_else(|| "—".into()),
-        clock_out: member.clock_out.map(format_time).unwrap_or_else(|| "—".into()),
+        shift_note: member.shift_note.clone().unwrap_or_else(|| "—".into()),
+        clock_in: member
+            .clock_in
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
+        clock_out: member
+            .clock_out
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
         status: member.status.clone(),
         status_label: status_label(&member.status),
-        can_mark_no_show: member.can_mark_no_show,
+        can_mark_no_show: member.can_mark_absence,
+        can_mark_absence: member.can_mark_absence,
         can_correct: member.entry_id.is_some() || member.clock_in.is_none(),
     }
 }
@@ -106,9 +127,16 @@ fn status_label(status: &str) -> String {
     match status {
         "not_started" => "Not started",
         "clocked_in" => "Clocked in",
+        "late" => "Late",
+        "partial" => "Partial day",
         "completed" => "Completed",
         "absent" => "Absent",
         "no_show" => "No-show",
+        "sick_leave" => "Sick leave",
+        "vacation" => "Vacation",
+        "official_leave" => "Official leave",
+        "offset" => "Offset",
+        "holiday" => "Holiday",
         _ => status,
     }
     .into()
@@ -125,31 +153,36 @@ pub struct CorrectionFormData {
     pub is_new: bool,
 }
 
-pub fn correction_form(
-    entry_id: Option<uuid::Uuid>,
-    employee_id: uuid::Uuid,
-    employee_name: &str,
-    work_date: time::Date,
-    clock_in: Option<time::OffsetDateTime>,
-    clock_out: Option<time::OffsetDateTime>,
-    is_new: bool,
-) -> CorrectionFormData {
+pub struct CorrectionFormInput<'a> {
+    pub entry_id: Option<uuid::Uuid>,
+    pub employee_id: uuid::Uuid,
+    pub employee_name: &'a str,
+    pub work_date: time::Date,
+    pub clock_in: Option<time::OffsetDateTime>,
+    pub clock_out: Option<time::OffsetDateTime>,
+    pub is_new: bool,
+    pub tz: &'a str,
+}
+
+pub fn correction_form(input: CorrectionFormInput<'_>) -> CorrectionFormData {
     CorrectionFormData {
-        entry_id: entry_id.map(|id| id.to_string()),
-        employee_id: employee_id.to_string(),
-        employee_name: employee_name.into(),
-        work_date: format_date(work_date),
-        clock_in: clock_in
-            .map(format_time_input)
+        entry_id: input.entry_id.map(|id| id.to_string()),
+        employee_id: input.employee_id.to_string(),
+        employee_name: input.employee_name.into(),
+        work_date: format_date(input.work_date),
+        clock_in: input
+            .clock_in
+            .map(|dt| format_time_input(dt, input.tz))
             .unwrap_or_else(|| "08:00".into()),
-        clock_out: clock_out
-            .map(format_time_input)
+        clock_out: input
+            .clock_out
+            .map(|dt| format_time_input(dt, input.tz))
             .unwrap_or_else(|| "17:00".into()),
-        is_new,
+        is_new: input.is_new,
     }
 }
 
-pub fn ot_pending_row(entry: &TimeEntryWithEmployee) -> OtPendingRow {
+pub fn ot_pending_row(entry: &TimeEntryWithEmployee, tz: &str) -> OtPendingRow {
     OtPendingRow {
         id: entry.id.to_string(),
         employee_code: entry.employee_code.clone(),
@@ -160,7 +193,17 @@ pub fn ot_pending_row(entry: &TimeEntryWithEmployee) -> OtPendingRow {
             .map(format_minutes)
             .unwrap_or_else(|| "—".into()),
         ot: format_minutes(entry.ot_minutes),
-        clock_in: entry.clock_in.map(format_time).unwrap_or_else(|| "—".into()),
-        clock_out: entry.clock_out.map(format_time).unwrap_or_else(|| "—".into()),
+        clock_in: entry
+            .clock_in
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
+        clock_out: entry
+            .clock_out
+            .map(|dt| format_time(dt, tz))
+            .unwrap_or_else(|| "—".into()),
+        ot_reason: entry
+            .ot_request_reason
+            .clone()
+            .unwrap_or_else(|| "—".into()),
     }
 }

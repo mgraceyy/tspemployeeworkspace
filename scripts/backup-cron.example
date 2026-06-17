@@ -1,0 +1,5 @@
+# Example cron entry — daily backup at 02:15, keep 14 days
+# Install: crontab -e, then paste (adjust paths):
+
+15 2 * * * cd /opt/dtr && BACKUP_DIR=/var/backups/dtr RETENTION_DAYS=14 ./scripts/backup-all.sh /var/backups/dtr/dtr-$(date +\%Y\%m\%d).sql
+30 3 * * 0 cd /opt/dtr && ./scripts/verify-backup.sh /var/backups/dtr/$(ls -t /var/backups/dtr/dtr-*.sql | head -1 | xargs basename) || logger -t dtr-backup "weekly restore drill failed"

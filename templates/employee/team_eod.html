@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Team EOD</h1>
+  <p class="muted">Today: {{ content.today }}{% if content.has_department %} · Department: {{ content.department }}{% endif %}</p>
+</section>
+
+{% if not content.has_department %}
+<div class="alert alert-info">Your department is not set yet. Ask your admin to assign a department on your profile.</div>
+{% else %}
+
+<section class="panel">
+  <h2>Today's Submissions</h2>
+  {% if content.reports %}
+  {% for report in content.reports %}
+  <article class="eod-card">
+    <h3>{{ report.full_name }} ({{ report.employee_code }})</h3>
+    <p class="muted">Submitted {{ report.submitted_at }}</p>
+    {% if report.summary %}<p>{{ report.summary }}</p>{% endif %}
+    {% if report.tasks %}
+    <ul class="eod-task-list">
+      {% for task in report.tasks %}
+      <li><span class="badge">{{ task.kind }}</span> {{ task.title }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% else %}
+  <p class="muted">No teammates have submitted EOD for today yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Recent (7 days)</h2>
+  {% if content.recent %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Employee</th><th>Summary</th></tr></thead>
+      <tbody>
+        {% for row in content.recent %}
+        <tr>
+          <td>{{ row.report_date }}</td>
+          <td>{{ row.full_name }} ({{ row.employee_code }})</td>
+          <td>{{ row.summary or "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No recent submissions from your department.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

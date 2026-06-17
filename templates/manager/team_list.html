@@ -10,6 +10,7 @@
     {% for emp in content.team %}
     <li>
       <a href="/manager/team/{{ emp.id }}">{{ emp.full_name }} ({{ emp.employee_code }})</a>
+      · <a href="/manager/team/{{ emp.id }}/profile">Profile</a>
     </li>
     {% else %}
     <li class="muted">No team members assigned.</li>

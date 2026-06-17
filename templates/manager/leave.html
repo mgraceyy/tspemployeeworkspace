@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Leave Requests</h1>
+  <p class="muted">Review and approve or reject pending leave requests from your team.</p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Dates</th><th>Type</th><th>Employee reason</th><th>Review</th></tr>
+    </thead>
+    <tbody>
+      {% for req in content.pending %}
+      <tr>
+        <td><strong>{{ req.full_name }}</strong><br><span class="muted">{{ req.employee_code }}</span></td>
+        <td>{{ req.start_date }} — {{ req.end_date }}</td>
+        <td>{{ req.leave_type }}</td>
+        <td>{{ req.reason or "—" }}</td>
+        <td>
+          <form method="post" action="/manager/leave/{{ req.id }}/review" class="actions">
+            {% include "partials/csrf_field.html" %}
+            <input type="text" name="note" placeholder="Note" class="input-small">
+            <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
+            <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No pending leave requests.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

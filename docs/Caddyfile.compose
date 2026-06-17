@@ -1,0 +1,21 @@
+# Caddy config for docker-compose.prod.yml (service name: app).
+# Terminates TLS automatically when you set a real hostname below.
+# For local testing without a domain, use :80 or :443 with internal TLS.
+
+:80 {
+    encode gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    reverse_proxy app:8080 {
+        # Overwrite forwarding headers — do not pass client-supplied X-Forwarded-For through.
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+    }
+}

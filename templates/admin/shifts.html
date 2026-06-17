@@ -22,6 +22,7 @@
     <h2>Weekly Schedule</h2>
     {% for day in content.day_rows %}
     <form method="post" action="/admin/shifts" class="shift-row">
+      {% include "partials/csrf_field.html" %}
       <input type="hidden" name="employee_id" value="{{ content.selected.id }}">
       <input type="hidden" name="day_of_week" value="{{ day.day }}">
       <span class="day-label">{{ day.name }}</span>
