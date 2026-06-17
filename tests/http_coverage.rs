@@ -1353,6 +1353,19 @@ async fn admin_can_finalize_payroll_run_via_http() {
         .expect("status");
     assert_eq!(status, "finalized");
 
+    let payslip_path = format!("/admin/payroll/{run_id}/lines/{line_id}/payslip");
+    let (_, payslip_html, _) = get(&mut app, &payslip_path, &cookies).await;
+    assert!(payslip_html.contains("Employee Payslip"));
+    assert!(payslip_html.contains("Net pay"));
+
+    let emp_cookies = login_as(&mut app, &emp_code, TEST_PIN).await;
+    let (_, list_html, emp_cookies) = get(&mut app, "/me/payslips", &emp_cookies).await;
+    assert!(list_html.contains("My Payslips"));
+    let (_, payslip_html, _) =
+        get(&mut app, &format!("/me/payslips/{line_id}"), &emp_cookies).await;
+    assert!(payslip_html.contains("Gross pay"));
+    assert!(payslip_html.contains("Net pay"));
+
     let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
         .bind(run_id)
         .execute(&pool)

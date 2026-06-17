@@ -9,6 +9,7 @@ mod reports;
 mod settings;
 mod shifts;
 
+pub use crate::handlers::payslips::admin_payslip_page;
 pub use audit::audit_page;
 pub use compensation::{compensation_page, save_compensation_action};
 pub use corrections::corrections_page;

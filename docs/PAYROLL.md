@@ -66,7 +66,7 @@ Implementation: `src/services/payroll/compute.rs`
 | Draft run from closed period | Done |
 | Finalize (lock gross pay) | Done |
 | Manual deductions → net pay | Done |
-| Payslips | **Phase 4** |
+| Payslips (employee + printable) | Done |
 
 ---
 
@@ -164,11 +164,13 @@ net_pay = gross_pay − sum(deductions)
 
 ---
 
-## Phase 4 — Payslips
+## Phase 4 — Payslips ✅
 
-- `/admin/payroll/runs/{id}` — all employees, gross, deductions, net
-- `/me/payslips` — employee view (own records only)
-- Printable HTML payslip (company, period, earnings, deductions, net)
+- `/admin/payroll/{run_id}` — run summary with **Payslip** link per employee (finalized runs)
+- `/admin/payroll/{run_id}/lines/{line_id}/payslip` — printable admin view
+- `/me/payslips` — employee list (finalized runs only, own records)
+- `/me/payslips/{line_id}` — printable HTML payslip (earnings, deductions, net)
+- Print via browser (Ctrl+P); nav hidden in print layout
 
 ---
 
@@ -195,7 +197,9 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | `/admin/payroll/{id}` | ✅ Done |
 | `/admin/payroll/{id}/finalize` | ✅ Done |
 | `/admin/payroll/{run_id}/lines/{line_id}` | ✅ Done |
-| `/me/payslips` | Phase 4 |
+| `/me/payslips` | ✅ Done |
+| `/me/payslips/{line_id}` | ✅ Done |
+| `/admin/payroll/{run_id}/lines/{line_id}/payslip` | ✅ Done |
 
 ---
 

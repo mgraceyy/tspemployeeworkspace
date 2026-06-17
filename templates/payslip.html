@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header no-print">
+  <h1>Payslip</h1>
+  <p><a href="{{ content.back_url }}">← {{ content.back_label }}</a></p>
+  <p class="hint">Use your browser's Print (Ctrl+P) to save or print this payslip.</p>
+</section>
+
+<article class="payslip-document panel">
+  <header class="payslip-header">
+    <div>
+      <h2>{{ content.company_name }}</h2>
+      <p class="muted">Employee Payslip</p>
+    </div>
+    <div class="payslip-meta">
+      <p><strong>Period:</strong> {{ content.period_label }}</p>
+      <p><strong>Finalized:</strong> {{ content.finalized_at }}</p>
+    </div>
+  </header>
+
+  <section class="payslip-section">
+    <h3>Employee</h3>
+    <dl class="payslip-dl">
+      <div><dt>Code</dt><dd>{{ content.employee_code }}</dd></div>
+      <div><dt>Name</dt><dd>{{ content.full_name }}</dd></div>
+      {% if content.department %}<div><dt>Department</dt><dd>{{ content.department }}</dd></div>{% endif %}
+    </dl>
+  </section>
+
+  <section class="payslip-section">
+    <h3>Attendance summary</h3>
+    <dl class="payslip-dl">
+      <div><dt>Regular time</dt><dd>{{ content.regular_minutes }}</dd></div>
+      <div><dt>Approved OT</dt><dd>{{ content.approved_ot_minutes }}</dd></div>
+      {% if content.no_show_days > 0 %}<div><dt>No-show days</dt><dd>{{ content.no_show_days }}</dd></div>{% endif %}
+    </dl>
+  </section>
+
+  <div class="payslip-columns">
+    <section class="payslip-section">
+      <h3>Earnings</h3>
+      <table class="payslip-table">
+        <tbody>
+          <tr>
+            <td>Base pay</td>
+            <td class="amount">PHP {{ content.base_pay }}</td>
+          </tr>
+          {% if content.has_ot_pay %}
+          <tr>
+            <td>Overtime pay</td>
+            <td class="amount">PHP {{ content.ot_pay }}</td>
+          </tr>
+          {% endif %}
+          {% if content.has_no_show_deduction %}
+          <tr>
+            <td>No-show deduction</td>
+            <td class="amount deduction">−PHP {{ content.no_show_deduction }}</td>
+          </tr>
+          {% endif %}
+          <tr class="payslip-total-row">
+            <td><strong>Gross pay</strong></td>
+            <td class="amount"><strong>PHP {{ content.gross_pay }}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="payslip-section">
+      <h3>Deductions</h3>
+      <table class="payslip-table">
+        <tbody>
+          {% for item in content.deductions %}
+          <tr>
+            <td>{{ item.name }}{% if item.note %} <span class="muted">({{ item.note }})</span>{% endif %}</td>
+            <td class="amount deduction">−PHP {{ item.amount }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="2" class="muted">No deductions</td>
+          </tr>
+          {% endfor %}
+          <tr class="payslip-total-row">
+            <td><strong>Total deductions</strong></td>
+            <td class="amount"><strong>PHP {{ content.total_deductions }}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <footer class="payslip-net">
+    <span>Net pay</span>
+    <strong>PHP {{ content.net_pay }}</strong>
+  </footer>
+</article>
+{% endblock %}

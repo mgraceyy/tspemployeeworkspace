@@ -44,7 +44,7 @@
         <th>Gross</th>
         <th>Deductions</th>
         <th>Net</th>
-        {% if content.is_draft %}<th></th>{% endif %}
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -61,9 +61,13 @@
         <td><strong>{{ line.gross_pay }}</strong></td>
         <td>{% if line.has_deductions %}{{ line.deductions }}{% else %}—{% endif %}</td>
         <td><strong>{{ line.net_pay }}</strong></td>
-        {% if content.is_draft %}
-        <td><a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}">Deductions</a></td>
-        {% endif %}
+        <td>
+          {% if content.is_draft %}
+          <a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}">Deductions</a>
+          {% else %}
+          <a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}/payslip">Payslip</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

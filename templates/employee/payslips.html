@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>My Payslips</h1>
+  <p class="muted">Payslips from finalized payroll runs. Use Print (Ctrl+P) on a payslip to save as PDF.</p>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Pay period</th>
+        <th>Gross</th>
+        <th>Deductions</th>
+        <th>Net</th>
+        <th>Finalized</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for payslip in content.payslips %}
+      <tr>
+        <td>{{ payslip.period_label }}</td>
+        <td>{{ payslip.gross_pay }}</td>
+        <td>{{ payslip.deductions }}</td>
+        <td><strong>{{ payslip.net_pay }}</strong></td>
+        <td>{{ payslip.finalized_at }}</td>
+        <td><a href="/me/payslips/{{ payslip.line_id }}" class="btn btn-small btn-primary">View</a></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No payslips yet — they appear here after payroll is finalized.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

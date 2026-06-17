@@ -10,7 +10,7 @@ use crate::auth::{
     require_admin_role, require_manager_role,
 };
 use crate::handlers::{
-    admin, auth, employee, eod, health, leave, manager, metrics, notifications, profile,
+    admin, auth, employee, eod, health, leave, manager, metrics, notifications, payslips, profile,
     requirements,
 };
 use crate::middleware::request_metrics::record_request_metrics;
@@ -70,6 +70,8 @@ where
         .route("/me/eod/history", get(eod::my_eod_history))
         .route("/me/team/eod", get(eod::team_eod_feed))
         .route("/me/eod/{report_id}", get(eod::view_eod_detail))
+        .route("/me/payslips", get(payslips::my_payslips_page))
+        .route("/me/payslips/{line_id}", get(payslips::view_my_payslip))
         .route("/notifications", get(notifications::notifications_page))
         .route(
             "/notifications/dismiss",
@@ -205,6 +207,10 @@ where
             "/admin/payroll/{run_id}/lines/{line_id}",
             get(admin::payroll_line_deductions_page)
                 .post(admin::save_payroll_line_deductions_action),
+        )
+        .route(
+            "/admin/payroll/{run_id}/lines/{line_id}/payslip",
+            get(admin::admin_payslip_page),
         )
         .route(
             "/admin/payroll/{run_id}/finalize",

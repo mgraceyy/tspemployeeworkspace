@@ -145,7 +145,7 @@ When `METRICS_TOKEN` is set, pass `Authorization: Bearer <token>` or `?token=<to
 | Area | Routes |
 |------|--------|
 | Public | `/login`, `/change-pin`, `/logout`, `/health`, `/metrics` |
-| Employee | `/`, `/clock/in`, `/clock/out`, `/me/timesheet`, `/me/timesheet/export.csv`, `/me/leave`, `/me/holidays`, `/me/profile`, `/me/requirements`, `/me/eod`, `/me/eod/history`, `/me/team/eod`, `/notifications` |
+| Employee | `/`, `/clock/in`, `/clock/out`, `/me/timesheet`, `/me/timesheet/export.csv`, `/me/leave`, `/me/holidays`, `/me/profile`, `/me/requirements`, `/me/eod`, `/me/eod/history`, `/me/payslips`, `/me/team/eod`, `/notifications` |
 | Manager | `/manager`, `/manager/team`, `/manager/team/{id}/export.csv`, `/manager/correct`, `/manager/absence`, `/manager/ot/{id}/review`, `/manager/eod`, `/manager/eod/export.csv`, `/manager/leave`, `/manager/requirements` |
 | Admin | `/admin/employees`, `/admin/employees/{id}/compensation`, `/admin/payroll`, `/admin/requirements`, `/admin/shifts`, `/admin/settings`, `/admin/holidays`, `/admin/reports` (CSV/Excel, close/reopen period), `/admin/corrections`, `/admin/audit`, `/admin/eod` |
 
@@ -170,7 +170,7 @@ docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
 ## Payroll roadmap
 
 v0.1.0 covers **time & attendance reporting** (hours, OT, leave counts, period close, CSV/Excel export).  
-**Compensation**, **payroll runs** (gross pay for closed periods), and **manual deductions** (net pay) are available; **payslips** are next — see [docs/PAYROLL.md](docs/PAYROLL.md).
+**Compensation**, **payroll runs**, **manual deductions**, and **payslips** (`/me/payslips`) are available — see [docs/PAYROLL.md](docs/PAYROLL.md).
 
 **Ops (locked):** Admin runs payroll in-app; bank/accounting export and 13th-month pay stay outside the app for now.
 

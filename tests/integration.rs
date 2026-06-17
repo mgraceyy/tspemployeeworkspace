@@ -38,8 +38,9 @@ use dtr::models::LeaveRequestType;
 use dtr::models::PayrollRunStatus;
 use dtr::services::leave::{create_request, review_request};
 use dtr::services::payroll::{
-    create_draft_run, finalize_run, get_line_for_run, get_run, list_deduction_types,
-    list_lines_for_run, save_line_deductions, DeductionInput,
+    create_draft_run, finalize_run, get_line_for_run, get_payslip_for_employee, get_run,
+    list_deduction_types, list_lines_for_run, list_payslips_for_employee, save_line_deductions,
+    DeductionInput,
 };
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
 use dtr::services::timezone::{combine_date_time, company_date_now, now_company};
@@ -1661,6 +1662,96 @@ async fn admin_can_save_payroll_deductions_and_finalize_net_pay() {
     .await
     .expect_err("finalized run should reject deduction edits");
     assert!(matches!(err, AppError::BadRequest(_)));
+
+    let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM payroll_runs WHERE id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    reopen_pay_period(&pool, today, today)
+        .await
+        .expect("reopen");
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn employee_sees_finalized_payslip_only() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PSAD");
+    let emp_code = unique_code("PSEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Payslip Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Payslip Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let today = company_date_now(&settings).expect("today");
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    close_pay_period(&pool, today, today, admin.id, Some("payslip test"))
+        .await
+        .expect("close period");
+
+    let run_id = create_draft_run(&pool, today, today, admin.id, &settings, None)
+        .await
+        .expect("create draft");
+
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("employee line");
+
+    let before = list_payslips_for_employee(&pool, employee.id)
+        .await
+        .expect("list");
+    assert!(!before.iter().any(|p| p.line_id == line.id));
+
+    let err = get_payslip_for_employee(&pool, employee.id, line.id)
+        .await
+        .expect_err("draft payslip hidden");
+    assert!(matches!(err, AppError::NotFound));
+
+    finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect("finalize");
+
+    let after = list_payslips_for_employee(&pool, employee.id)
+        .await
+        .expect("list after");
+    assert!(after.iter().any(|p| p.line_id == line.id));
+
+    let payslip = get_payslip_for_employee(&pool, employee.id, line.id)
+        .await
+        .expect("payslip");
+    assert_eq!(payslip.gross_pay_cents, line.gross_pay_cents);
+    assert_eq!(payslip.net_pay_cents, line.net_pay_cents);
 
     let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
         .bind(run_id)

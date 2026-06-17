@@ -1,5 +1,6 @@
 pub mod compute;
 pub mod deductions;
+pub mod payslips;
 pub mod runs;
 
 pub use compute::{
@@ -10,6 +11,10 @@ pub use compute::{
 pub use deductions::{
     get_line_for_run, list_deduction_types, list_deductions_for_line,
     parse_optional_amount_to_cents, save_line_deductions, DeductionInput,
+};
+pub use payslips::{
+    get_payslip_for_admin, get_payslip_for_employee, list_payslips_for_employee, PayslipDetail,
+    PayslipListItem,
 };
 pub use runs::{
     create_draft_run, employees_missing_compensation, finalize_run, get_run, list_lines_for_run,

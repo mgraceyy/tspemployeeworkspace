@@ -8,6 +8,7 @@ pub mod leave;
 pub mod manager;
 pub mod metrics;
 pub mod notifications;
+pub mod payslips;
 pub mod profile;
 pub mod render;
 pub mod requirements;
