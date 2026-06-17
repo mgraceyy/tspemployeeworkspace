@@ -325,7 +325,7 @@ The audit/deny steps ignore [RUSTSEC-2023-0071](https://rustsec.org/advisories/R
 
 ## Tests
 
-The suite has **126+ Rust tests** across unit, integration, and HTTP layers.
+The suite has **145+ Rust tests** across unit, integration, and HTTP layers.
 
 Unit tests (no database required):
 

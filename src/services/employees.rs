@@ -295,6 +295,14 @@ pub async fn seed_e2e_fixtures(pool: &PgPool, enabled: bool) -> AppResult<()> {
         tracing::info!("seeded E2E fixture employee (E2E001 / 482915)");
     }
 
+    sqlx::query(
+        "UPDATE employees SET must_change_pin = FALSE
+         WHERE employee_code IN ('E2MGR', 'E2E001')",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
     let doc_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM requirement_types WHERE name = 'E2E Test Document')",
     )

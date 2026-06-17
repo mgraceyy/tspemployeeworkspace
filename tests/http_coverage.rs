@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use dtr::models::{EodReportStatus, OtStatus, UserRole};
 use dtr::services::clock::clock_in;
 use dtr::services::employees::create_employee;
+use dtr::services::reports::current_pay_period;
 use dtr::services::requirements::{create_type, list_for_employee};
 use dtr::services::settings::get_settings;
 use dtr::services::timezone::{company_date_now, format_date};
@@ -1252,7 +1253,9 @@ async fn admin_can_finalize_payroll_run_via_http() {
     .expect("create employee");
 
     let settings = get_settings(&pool).await.expect("settings");
-    let today = company_date_now(&settings).expect("today");
+    let anchor = Date::from_calendar_date(2099, Month::June, 10).unwrap();
+    let (period_start, period_end, _) =
+        current_pay_period(anchor, settings.pay_period, settings.pay_period_anchor);
     let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
 
     let active_ids: Vec<Uuid> = sqlx::query_scalar(
@@ -1271,8 +1274,8 @@ async fn admin_can_finalize_payroll_run_via_http() {
 
     dtr::services::payroll_controls::close_pay_period(
         &pool,
-        today,
-        today,
+        period_start,
+        period_end,
         admin.id,
         Some("http payroll test"),
     )
@@ -1284,18 +1287,25 @@ async fn admin_can_finalize_payroll_run_via_http() {
     let (_, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
     assert!(payroll_html.contains("Create draft"));
     let csrf = extract_csrf_token(&payroll_html).expect("csrf");
-    let start = format_date(today);
-    let body = format!("period_start={start}&period_end={start}&csrf_token={csrf}");
+    let start = format_date(period_start);
+    let end = format_date(period_end);
+    let body = format!("period_start={start}&period_end={end}&csrf_token={csrf}");
     let (status, _, cookies) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let run_id: Uuid = sqlx::query_scalar(
-        "SELECT id FROM payroll_runs WHERE period_start = $1 ORDER BY created_at DESC LIMIT 1",
+        "SELECT id FROM payroll_runs WHERE period_start = $1 AND period_end = $2 ORDER BY created_at DESC LIMIT 1",
     )
-    .bind(today)
+    .bind(period_start)
+    .bind(period_end)
     .fetch_one(&pool)
     .await
     .expect("run id");
+
+    let _ = sqlx::query("UPDATE payroll_lines SET pending_ot_minutes = 0 WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
 
     let run_path = format!("/admin/payroll/{run_id}");
     let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
@@ -1366,6 +1376,21 @@ async fn admin_can_finalize_payroll_run_via_http() {
     assert!(payslip_html.contains("Gross pay"));
     assert!(payslip_html.contains("Net pay"));
 
+    let other_code = unique_code("PYHO");
+    create_employee(
+        &pool,
+        &other_code,
+        "Other Payslip Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("other employee");
+    let other_cookies = login_as(&mut app, &other_code, TEST_PIN).await;
+    let (status, _, _) = get(&mut app, &format!("/me/payslips/{line_id}"), &other_cookies).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
         .bind(run_id)
         .execute(&pool)
@@ -1374,10 +1399,13 @@ async fn admin_can_finalize_payroll_run_via_http() {
         .bind(run_id)
         .execute(&pool)
         .await;
-    let _ = sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1")
-        .bind(today)
-        .execute(&pool)
-        .await;
+    let _ =
+        sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1 AND period_end = $2")
+            .bind(period_start)
+            .bind(period_end)
+            .execute(&pool)
+            .await;
+    cleanup_employee(&pool, &other_code).await;
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
 }

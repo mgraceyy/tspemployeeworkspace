@@ -83,7 +83,7 @@ pub async fn login_submit(
             &state,
             &session,
             &settings.company_name,
-            "Too many failed attempts for this account. Try again in 15 minutes.",
+            "Too many failed login attempts. Try again in 15 minutes.",
         )
         .await;
     }
@@ -119,6 +119,12 @@ pub async fn login_submit(
     }
 
     state.login_limiter.clear_account(&employee_code).await?;
+
+    session
+        .flush()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    crate::auth::csrf::get_or_create_token(&session).await?;
 
     set_session(
         &session,

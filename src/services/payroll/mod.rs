@@ -17,7 +17,8 @@ pub use payslips::{
     PayslipListItem,
 };
 pub use runs::{
-    create_draft_run, employees_missing_compensation, finalize_run, get_run, list_lines_for_run,
-    list_runnable_closed_periods, list_runs, total_deduction_cents, total_gross_cents,
-    total_net_cents, total_pending_ot_minutes, ClosedPeriodCandidate, PayrollRunListItem,
+    create_draft_run, employees_missing_compensation, finalize_run, get_run,
+    inactive_employee_count, list_lines_for_run, list_runnable_closed_periods, list_runs,
+    total_deduction_cents, total_gross_cents, total_net_cents, total_pending_ot_minutes,
+    void_draft_run, ClosedPeriodCandidate, PayrollRunListItem,
 };

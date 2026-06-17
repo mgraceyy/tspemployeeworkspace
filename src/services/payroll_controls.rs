@@ -232,7 +232,38 @@ pub async fn close_pay_period(
     Ok(ClosePayPeriodResult::Closed)
 }
 
+pub async fn assert_payroll_run_allows_reopen(
+    pool: &PgPool,
+    start: Date,
+    end: Date,
+) -> AppResult<()> {
+    let status: Option<String> = sqlx::query_scalar(
+        "SELECT status::text FROM payroll_runs
+         WHERE period_start = $1 AND period_end = $2 AND status IN ('draft', 'finalized')
+         LIMIT 1",
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    if let Some(status) = status {
+        let hint = if status == "draft" {
+            "Void the draft payroll run first"
+        } else {
+            "Payroll is already finalized for this period"
+        };
+        return Err(AppError::bad_request(format!(
+            "Cannot reopen this pay period — a {status} payroll run exists. {hint}."
+        )));
+    }
+    Ok(())
+}
+
 pub async fn reopen_pay_period(pool: &PgPool, start: Date, end: Date) -> AppResult<()> {
+    assert_payroll_run_allows_reopen(pool, start, end).await?;
+
     let result =
         sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1 AND period_end = $2")
             .bind(start)

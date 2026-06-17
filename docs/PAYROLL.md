@@ -136,16 +136,20 @@ CREATE TABLE payroll_lines (
 ### Workflow
 
 1. `/admin/payroll` — list runs
-2. Create draft for a fully **closed** period
-3. Pull `payroll_summary()` per employee + `compensation_profiles`
+2. Create draft for a fully **closed** canonical pay period
+3. Pull `payroll_summary()` per employee + compensation as of `period_end`
 4. Run `gross_pay_cents()` — preview table
-5. Finalize → immutable snapshot
+5. Enter deductions per employee
+6. Finalize → immutable snapshot (blocked while pending OT remains)
+7. **Void draft** if the run was created in error
 
 ### Guards
 
-- Period must be closed
+- Period must be closed and match a full configured pay period (semimonthly, monthly, etc.)
 - Every active employee needs compensation profile
-- Warn if pending OT exists (excluded from gross)
+- Pending OT blocks finalize (excluded from gross until approved)
+- Period reopen blocked while a draft or finalized payroll run exists
+- Draft creation is transactional; one active run per period (DB-enforced)
 
 ---
 

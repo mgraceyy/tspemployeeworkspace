@@ -2,7 +2,7 @@
 {% block page %}
 <section class="page-header">
   <h1>Payroll Runs</h1>
-  <p class="muted">Create gross-pay runs for <strong>closed</strong> pay periods. Admin only. Deductions and payslips come in later phases.</p>
+  <p class="muted">Create gross-pay runs for <strong>closed</strong> full pay periods. Enter deductions per employee, then finalize to lock net pay and publish payslips.</p>
   <p><a href="/admin/reports">← Attendance reports &amp; period close</a></p>
 </section>
 
@@ -42,7 +42,7 @@
 {% if content.candidates %}
 <section class="panel">
   <h2>Create draft run</h2>
-  <p class="hint">Only closed periods without an existing draft or finalized run are listed.</p>
+  <p class="hint">Only closed full pay periods without an existing draft or finalized run are listed.</p>
   <ul class="employee-list">
     {% for c in content.candidates %}
     <li>
@@ -62,7 +62,7 @@
 </section>
 {% else %}
 <section class="panel">
-  <p class="muted">No closed periods are ready for payroll. Close a period in <a href="/admin/reports">Reports</a> first.</p>
+  <p class="muted">No closed periods are ready for payroll. Close a full pay period in <a href="/admin/reports">Reports</a> first.</p>
 </section>
 {% endif %}
 {% endblock %}

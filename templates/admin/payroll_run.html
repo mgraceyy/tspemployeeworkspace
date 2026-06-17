@@ -9,7 +9,13 @@
 
 {% if content.has_pending_ot %}
 <div class="alert alert-warning">
-  This run excludes <strong>{{ content.pending_ot_minutes }}</strong> pending OT minutes — only approved OT is included in gross pay.
+  <strong>{{ content.pending_ot_minutes }}</strong> pending OT minutes remain. Approve or reject OT before finalizing — finalize is blocked until pending OT is cleared.
+</div>
+{% endif %}
+
+{% if content.has_inactive_employees %}
+<div class="alert alert-warning">
+  <strong>{{ content.inactive_employee_count }}</strong> employee line(s) belong to deactivated accounts (snapshot from when this draft was created).
 </div>
 {% endif %}
 
@@ -21,11 +27,22 @@
   <p>Total net: <strong>PHP {{ content.total_net }}</strong></p>
   {% if content.is_draft %}
   <p class="hint">Enter deductions per employee before finalizing. Net pay = gross − deductions.</p>
-  <form method="post" action="/admin/payroll/{{ content.run_id }}/finalize" class="inline-form"
-    onsubmit="return confirm('Finalize this payroll run? Gross pay and deductions will be locked for this period.');">
-    {% include "partials/csrf_field.html" %}
-    <button type="submit" class="btn btn-primary">Finalize run</button>
-  </form>
+  <div class="inline-form">
+    {% if content.can_finalize %}
+    <form method="post" action="/admin/payroll/{{ content.run_id }}/finalize" class="inline-form"
+      onsubmit="return confirm('Finalize this payroll run? Gross pay and deductions will be locked for this period.');">
+      {% include "partials/csrf_field.html" %}
+      <button type="submit" class="btn btn-primary">Finalize run</button>
+    </form>
+    {% else %}
+    <button type="button" class="btn btn-primary" disabled>Finalize run</button>
+    {% endif %}
+    <form method="post" action="/admin/payroll/{{ content.run_id }}/void" class="inline-form"
+      onsubmit="return confirm('Void this draft payroll run? You can create a new run for this period afterward.');">
+      {% include "partials/csrf_field.html" %}
+      <button type="submit" class="btn btn-secondary">Void draft</button>
+    </form>
+  </div>
   {% endif %}
 </section>
 
@@ -50,7 +67,7 @@
     <tbody>
       {% for line in content.lines %}
       <tr>
-        <td>{{ line.employee_code }}</td>
+        <td>{{ line.employee_code }}{% if line.is_inactive %} <span class="muted">(inactive)</span>{% endif %}</td>
         <td>{{ line.full_name }}</td>
         <td>{{ line.department or "—" }}</td>
         <td>{{ line.no_show_days }}</td>

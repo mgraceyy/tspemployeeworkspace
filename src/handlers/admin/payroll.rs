@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, State},
     response::Redirect,
@@ -12,15 +14,15 @@ use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
 use crate::handlers::flash::redirect_with_flash;
 use crate::handlers::render::{render_page, HtmlPage};
-use crate::models::DeductionType;
 use crate::models::PayrollRunStatus;
 use crate::services::{
     audit::log_action,
     compensation::format_salary_cents,
     payroll::runs::{
         create_draft_run, employees_missing_compensation, finalize_run, get_run,
-        list_lines_for_run, list_runnable_closed_periods, list_runs, total_deduction_cents,
-        total_gross_cents, total_net_cents, total_pending_ot_minutes,
+        inactive_employee_count, list_lines_for_run, list_runnable_closed_periods, list_runs,
+        total_deduction_cents, total_gross_cents, total_net_cents, total_pending_ot_minutes,
+        void_draft_run,
     },
     payroll::{
         get_line_for_run, list_deduction_types, list_deductions_for_line,
@@ -39,51 +41,25 @@ pub struct CreatePayrollRunForm {
     note: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub struct LineDeductionsForm {
-    amount_sss: Option<String>,
-    note_sss: Option<String>,
-    amount_phic: Option<String>,
-    note_phic: Option<String>,
-    amount_hdmf: Option<String>,
-    note_hdmf: Option<String>,
-    amount_wht: Option<String>,
-    note_wht: Option<String>,
-    amount_loan: Option<String>,
-    note_loan: Option<String>,
-    amount_other: Option<String>,
-    note_other: Option<String>,
-}
-
-fn deduction_form_fields(
-    form: &LineDeductionsForm,
-) -> [(&str, &Option<String>, &Option<String>); 6] {
-    [
-        ("SSS", &form.amount_sss, &form.note_sss),
-        ("PHIC", &form.amount_phic, &form.note_phic),
-        ("HDMF", &form.amount_hdmf, &form.note_hdmf),
-        ("WHT", &form.amount_wht, &form.note_wht),
-        ("LOAN", &form.amount_loan, &form.note_loan),
-        ("OTHER", &form.amount_other, &form.note_other),
-    ]
-}
-
-fn build_deduction_inputs(
-    types: &[DeductionType],
-    form: &LineDeductionsForm,
+fn build_deduction_inputs_from_form(
+    types: &[crate::models::DeductionType],
+    form: &HashMap<String, String>,
 ) -> AppResult<Vec<DeductionInput>> {
-    let fields = deduction_form_fields(form);
     let mut inputs = Vec::new();
-    for (code, amount_field, note_field) in fields {
-        let dtype = types
-            .iter()
-            .find(|t| t.code == code)
-            .ok_or_else(|| AppError::bad_request(format!("Unknown deduction type: {code}")))?;
-        let amount_cents = parse_optional_amount_to_cents(amount_field.as_deref().unwrap_or(""))?;
+    for dtype in types {
+        let amount_key = format!("amount_{}", dtype.code.to_lowercase());
+        let note_key = format!("note_{}", dtype.code.to_lowercase());
+        let amount_cents = parse_optional_amount_to_cents(
+            form.get(&amount_key).map(|s| s.as_str()).unwrap_or(""),
+        )?;
+        let note = form
+            .get(&note_key)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         inputs.push(DeductionInput {
             deduction_type_id: dtype.id,
             amount_cents,
-            note: note_field.clone(),
+            note,
         });
     }
     Ok(inputs)
@@ -197,8 +173,12 @@ pub async fn payroll_run_page(
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
     let run = get_run(&state.pool, run_id).await?;
+    if run.status == PayrollRunStatus::Voided {
+        return Err(AppError::NotFound);
+    }
     let lines = list_lines_for_run(&state.pool, run_id).await?;
     let pending_ot = total_pending_ot_minutes(&lines);
+    let inactive_count = inactive_employee_count(&lines);
     let total_gross = total_gross_cents(&lines);
     let total_deductions = total_deduction_cents(&lines);
     let total_net = total_net_cents(&lines);
@@ -211,6 +191,7 @@ pub async fn payroll_run_page(
                 employee_code => l.employee_code.clone(),
                 full_name => l.full_name.clone(),
                 department => l.department.clone().unwrap_or_default(),
+                is_inactive => !l.employee_is_active,
                 no_show_days => l.no_show_days,
                 approved_ot_minutes => l.approved_ot_minutes,
                 pending_ot_minutes => l.pending_ot_minutes,
@@ -249,6 +230,9 @@ pub async fn payroll_run_page(
             total_net => format_salary_cents(total_net),
             has_pending_ot => pending_ot > 0,
             pending_ot_minutes => pending_ot,
+            can_finalize => pending_ot == 0,
+            has_inactive_employees => inactive_count > 0,
+            inactive_employee_count => inactive_count,
         },
     )
     .await
@@ -262,6 +246,9 @@ pub async fn payroll_line_deductions_page(
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
     let run = get_run(&state.pool, run_id).await?;
+    if run.status == PayrollRunStatus::Voided {
+        return Err(AppError::NotFound);
+    }
     let line = get_line_for_run(&state.pool, run_id, line_id).await?;
     let types = list_deduction_types(&state.pool).await?;
     let existing = list_deductions_for_line(&state.pool, line_id).await?;
@@ -308,6 +295,7 @@ pub async fn payroll_line_deductions_page(
             is_draft => is_draft,
             employee_code => line.employee_code,
             full_name => line.full_name,
+            is_inactive => !line.employee_is_active,
             gross_pay => format_salary_cents(line.gross_pay_cents),
             total_deductions => format_salary_cents(line.total_deduction_cents),
             net_pay => format_salary_cents(line.net_pay_cents),
@@ -322,10 +310,10 @@ pub async fn save_payroll_line_deductions_action(
     session: Session,
     AuthUser(user): AuthUser,
     Path((run_id, line_id)): Path<(Uuid, Uuid)>,
-    Form(form): Form<LineDeductionsForm>,
+    Form(form): Form<HashMap<String, String>>,
 ) -> AppResult<Redirect> {
     let types = list_deduction_types(&state.pool).await?;
-    let inputs = build_deduction_inputs(&types, &form)?;
+    let inputs = build_deduction_inputs_from_form(&types, &form)?;
     save_line_deductions(&state.pool, run_id, line_id, &inputs).await?;
 
     let line = get_line_for_run(&state.pool, run_id, line_id).await?;
@@ -350,6 +338,36 @@ pub async fn save_payroll_line_deductions_action(
             line.employee_code,
             format_salary_cents(line.net_pay_cents)
         ),
+    )
+    .await
+}
+
+pub async fn void_payroll_run_action(
+    State(state): State<AppState>,
+    session: Session,
+    AuthUser(user): AuthUser,
+    Path(run_id): Path<Uuid>,
+) -> AppResult<Redirect> {
+    let run = get_run(&state.pool, run_id).await?;
+    void_draft_run(&state.pool, run_id).await?;
+
+    log_action(
+        &state.pool,
+        user.employee_id,
+        "payroll.run_voided",
+        &format!(
+            "Voided draft payroll run for {} to {}",
+            format_date(run.period_start),
+            format_date(run.period_end)
+        ),
+    )
+    .await?;
+
+    redirect_with_flash(
+        &session,
+        "/admin/payroll",
+        "success",
+        "Draft payroll run voided — you can create a new run for this period",
     )
     .await
 }

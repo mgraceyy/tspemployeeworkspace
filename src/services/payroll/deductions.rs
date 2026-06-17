@@ -13,24 +13,10 @@ pub struct DeductionInput {
 }
 
 pub fn parse_optional_amount_to_cents(input: &str) -> AppResult<i64> {
-    let trimmed = input.trim().replace(',', "");
-    if trimmed.is_empty() {
-        return Ok(0);
-    }
-    let amount: f64 = trimmed
-        .parse()
-        .map_err(|_| AppError::bad_request("Amount must be a valid number"))?;
-    if amount < 0.0 {
-        return Err(AppError::bad_request("Amount cannot be negative"));
-    }
-    if amount == 0.0 {
-        return Ok(0);
-    }
-    if amount > 99_999_999.99 {
-        return Err(AppError::bad_request("Amount is too large"));
-    }
-    Ok((amount * 100.0).round() as i64)
+    crate::services::money::parse_money_to_cents(input, true)
 }
+
+const MAX_DEDUCTION_NOTE_LEN: usize = 200;
 
 pub async fn list_deduction_types(pool: &PgPool) -> AppResult<Vec<DeductionType>> {
     sqlx::query_as::<_, DeductionType>("SELECT id, code, name FROM deduction_types ORDER BY code")
@@ -46,6 +32,7 @@ pub async fn get_line_for_run(
 ) -> AppResult<crate::models::PayrollLineWithEmployee> {
     sqlx::query_as::<_, crate::models::PayrollLineWithEmployee>(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
+                e.is_active AS employee_is_active,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
                 l.base_pay_cents, l.no_show_deduction_cents, l.ot_pay_cents,
                 l.gross_pay_cents, l.net_pay_cents,
@@ -103,11 +90,29 @@ pub async fn save_line_deductions(
         ));
     }
 
+    let valid_type_ids: std::collections::HashSet<Uuid> =
+        sqlx::query_scalar("SELECT id FROM deduction_types")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?
+            .into_iter()
+            .collect();
+
     for input in inputs {
         if input.amount_cents < 0 {
             return Err(AppError::bad_request(
                 "Deduction amounts cannot be negative",
             ));
+        }
+        if input.amount_cents > 0 && !valid_type_ids.contains(&input.deduction_type_id) {
+            return Err(AppError::bad_request("Unknown deduction type"));
+        }
+        if let Some(ref note) = input.note {
+            if note.chars().count() > MAX_DEDUCTION_NOTE_LEN {
+                return Err(AppError::bad_request(format!(
+                    "Deduction notes cannot exceed {MAX_DEDUCTION_NOTE_LEN} characters"
+                )));
+            }
         }
     }
 

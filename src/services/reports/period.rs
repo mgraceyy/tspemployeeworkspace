@@ -70,6 +70,23 @@ pub fn period_label_for_range(start: Date, end: Date) -> String {
     format!("{} to {}", format_short_date(start), format_short_date(end))
 }
 
+pub fn assert_canonical_pay_period(
+    settings: &CompanySettings,
+    start: Date,
+    end: Date,
+) -> AppResult<()> {
+    let (expected_start, expected_end, label) =
+        current_pay_period(end, settings.pay_period, settings.pay_period_anchor);
+    if start == expected_start && end == expected_end {
+        return Ok(());
+    }
+    Err(AppError::bad_request(format!(
+        "Payroll requires a full {} pay period ({}). Close exactly that range in Reports before running payroll.",
+        pay_period_label(settings.pay_period),
+        label
+    )))
+}
+
 pub fn resolve_timesheet_period(
     today: Date,
     start: Option<&str>,
@@ -233,6 +250,40 @@ mod tests {
             end,
             Date::from_calendar_date(2026, Month::February, 1).unwrap()
         );
+    }
+
+    #[test]
+    fn assert_canonical_pay_period_accepts_full_semimonthly_range() {
+        let settings = CompanySettings {
+            company_name: "Test".into(),
+            break_minutes: 60,
+            ot_threshold_minutes: 480,
+            grace_minutes: 5,
+            pay_period: PayPeriodType::Semimonthly,
+            pay_period_anchor: anchor(),
+            timezone: "Asia/Manila".into(),
+            ot_requires_approval: true,
+        };
+        let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
+        let end = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+        assert!(assert_canonical_pay_period(&settings, start, end).is_ok());
+    }
+
+    #[test]
+    fn assert_canonical_pay_period_rejects_partial_range() {
+        let settings = CompanySettings {
+            company_name: "Test".into(),
+            break_minutes: 60,
+            ot_threshold_minutes: 480,
+            grace_minutes: 5,
+            pay_period: PayPeriodType::Semimonthly,
+            pay_period_anchor: anchor(),
+            timezone: "Asia/Manila".into(),
+            ot_requires_approval: true,
+        };
+        let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
+        let end = Date::from_calendar_date(2026, Month::June, 10).unwrap();
+        assert!(assert_canonical_pay_period(&settings, start, end).is_err());
     }
 
     #[test]

@@ -165,9 +165,7 @@ pub async fn get_payslip_for_admin(
         return Err(AppError::NotFound);
     }
     if row.run_status != PayrollRunStatus::Finalized {
-        return Err(AppError::bad_request(
-            "Payslips are only available after the payroll run is finalized",
-        ));
+        return Err(AppError::NotFound);
     }
     let deductions = list_deductions_for_line(pool, line_id).await?;
     row_to_detail(row, deductions)

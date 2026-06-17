@@ -46,12 +46,23 @@ pub async fn validate_token(
         AppError::bad_request("Missing CSRF token — refresh the page and try again")
     })?;
 
-    if submitted != expected {
+    if !constant_time_eq(submitted, &expected) {
         return Err(AppError::bad_request(
             "Invalid CSRF token — refresh the page and try again",
         ));
     }
     Ok(())
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in left.bytes().zip(right.bytes()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 fn max_post_body_bytes(content_type: Option<&header::HeaderValue>) -> usize {

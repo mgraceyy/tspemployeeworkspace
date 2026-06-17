@@ -24,13 +24,25 @@ fn env_is_truthy(key: &str) -> Option<bool> {
         .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
 }
 
-fn validate_seed_default_admin(app_env: Option<&str>, seed_default_admin: bool) -> Result<()> {
-    let production = app_env
+fn is_production(app_env: Option<&str>) -> bool {
+    app_env
         .map(|v| v.eq_ignore_ascii_case("production"))
-        .unwrap_or(false);
-    if production && seed_default_admin {
+        .unwrap_or(false)
+}
+
+fn validate_seed_default_admin(app_env: Option<&str>, seed_default_admin: bool) -> Result<()> {
+    if is_production(app_env) && seed_default_admin {
         anyhow::bail!(
             "SEED_DEFAULT_ADMIN must not be enabled when APP_ENV=production — provision admin accounts through your normal onboarding process"
+        );
+    }
+    Ok(())
+}
+
+fn validate_seed_e2e_fixtures(app_env: Option<&str>, seed_e2e_fixtures: bool) -> Result<()> {
+    if is_production(app_env) && seed_e2e_fixtures {
+        anyhow::bail!(
+            "SEED_E2E_FIXTURES must not be enabled when APP_ENV=production — known test accounts must never be seeded in production"
         );
     }
     Ok(())
@@ -68,8 +80,11 @@ impl Config {
     }
 
     pub fn from_env() -> Result<Self> {
+        let app_env = std::env::var("APP_ENV").ok();
         let seed_default_admin = env_is_truthy("SEED_DEFAULT_ADMIN").unwrap_or(false);
-        validate_seed_default_admin(std::env::var("APP_ENV").ok().as_deref(), seed_default_admin)?;
+        let seed_e2e_fixtures = env_is_truthy("SEED_E2E_FIXTURES").unwrap_or(false);
+        validate_seed_default_admin(app_env.as_deref(), seed_default_admin)?;
+        validate_seed_e2e_fixtures(app_env.as_deref(), seed_e2e_fixtures)?;
 
         let session_secure = match env_is_truthy("SESSION_SECURE_COOKIES") {
             Some(value) => value,
@@ -102,8 +117,6 @@ impl Config {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        let seed_e2e_fixtures = env_is_truthy("SEED_E2E_FIXTURES").unwrap_or(false);
-
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?,
             session_secret: std::env::var("SESSION_SECRET")
@@ -143,5 +156,15 @@ mod tests {
     #[test]
     fn allows_disabled_seed_in_production() {
         assert!(validate_seed_default_admin(Some("production"), false).is_ok());
+    }
+
+    #[test]
+    fn rejects_seed_e2e_fixtures_in_production() {
+        assert!(validate_seed_e2e_fixtures(Some("production"), true).is_err());
+    }
+
+    #[test]
+    fn allows_seed_e2e_fixtures_outside_production() {
+        assert!(validate_seed_e2e_fixtures(Some("development"), true).is_ok());
     }
 }

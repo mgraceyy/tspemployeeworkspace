@@ -45,6 +45,7 @@ pub struct PayrollLineWithEmployee {
     pub employee_code: String,
     pub full_name: String,
     pub department: Option<String>,
+    pub employee_is_active: bool,
     pub regular_minutes: i32,
     pub approved_ot_minutes: i32,
     pub pending_ot_minutes: i32,

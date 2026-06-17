@@ -6,22 +6,15 @@ use crate::error::{AppError, AppResult};
 use crate::models::CompensationProfile;
 
 pub fn parse_salary_to_cents(input: &str) -> AppResult<i64> {
-    let trimmed = input.trim().replace(',', "");
-    if trimmed.is_empty() {
-        return Err(AppError::bad_request("Monthly salary is required"));
-    }
-    let amount: f64 = trimmed
-        .parse()
-        .map_err(|_| AppError::bad_request("Monthly salary must be a valid number"))?;
-    if amount <= 0.0 {
-        return Err(AppError::bad_request(
-            "Monthly salary must be greater than zero",
-        ));
-    }
-    if amount > 99_999_999.99 {
-        return Err(AppError::bad_request("Monthly salary is too large"));
-    }
-    Ok((amount * 100.0).round() as i64)
+    crate::services::money::parse_money_to_cents(input, false).map_err(|error| match error {
+        AppError::BadRequest(message) if message == "Amount is required" => {
+            AppError::bad_request("Monthly salary is required")
+        }
+        AppError::BadRequest(message) if message == "Amount must be greater than zero" => {
+            AppError::bad_request("Monthly salary must be greater than zero")
+        }
+        other => other,
+    })
 }
 
 pub fn format_salary_cents(cents: i64) -> String {
@@ -88,6 +81,11 @@ pub async fn upsert_profile(
     }
 
     let existing = get_compensation(pool, employee_id).await?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+
     if let Some(old) = existing {
         let closes_on = effective_from - time::Duration::days(1);
         if closes_on >= old.effective_from {
@@ -102,7 +100,7 @@ pub async fn upsert_profile(
             .bind(old.effective_from)
             .bind(closes_on)
             .bind(updated_by)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Internal(e.into()))?;
         }
@@ -124,9 +122,12 @@ pub async fn upsert_profile(
     .bind(ot_rate_percent)
     .bind(effective_from)
     .bind(updated_by)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
 
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
     Ok(())
 }

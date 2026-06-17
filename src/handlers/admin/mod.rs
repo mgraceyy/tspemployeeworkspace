@@ -21,6 +21,7 @@ pub use holidays::{add_holiday_action, delete_holiday_action, holidays_page};
 pub use payroll::{
     create_payroll_run_action, finalize_payroll_run_action, payroll_line_deductions_page,
     payroll_run_page, payroll_runs_page, save_payroll_line_deductions_action,
+    void_payroll_run_action,
 };
 pub use reports::{
     close_pay_period_action, delete_report_preset_action, export_csv, export_detail_csv,

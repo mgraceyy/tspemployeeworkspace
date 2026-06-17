@@ -11,6 +11,7 @@ pub mod profile;
 pub mod requirements;
 
 pub mod hours;
+pub mod money;
 pub mod notifications;
 pub mod onboarding;
 pub mod ot;

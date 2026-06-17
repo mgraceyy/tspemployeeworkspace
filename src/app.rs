@@ -213,6 +213,10 @@ where
             get(admin::admin_payslip_page),
         )
         .route(
+            "/admin/payroll/{run_id}/void",
+            post(admin::void_payroll_run_action),
+        )
+        .route(
             "/admin/payroll/{run_id}/finalize",
             post(admin::finalize_payroll_run_action),
         )

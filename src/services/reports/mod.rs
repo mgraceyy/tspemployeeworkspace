@@ -8,6 +8,6 @@ pub use payroll::{
     PayrollDetailRow, PayrollFilters, PayrollRow,
 };
 pub use period::{
-    current_pay_period, pay_period_label, period_label_for_range, resolve_report_period,
-    resolve_timesheet_period, ReportPeriod,
+    assert_canonical_pay_period, current_pay_period, pay_period_label, period_label_for_range,
+    resolve_report_period, resolve_timesheet_period, ReportPeriod,
 };

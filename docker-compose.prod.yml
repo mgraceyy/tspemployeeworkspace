@@ -30,7 +30,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET (64+ random characters)}
       APP_ENV: production
       SESSION_SECURE_COOKIES: "true"
-      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN for /metrics protection}
       SHARED_RATE_LIMITS: ${SHARED_RATE_LIMITS:-true}
       SEED_DEFAULT_ADMIN: "false"
       PORT: ${PORT:-8080}

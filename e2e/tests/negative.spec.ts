@@ -47,7 +47,7 @@ test.describe("authorization boundaries", () => {
       await expect(page.getByText(/pay period closed|time edits in this range are now blocked/i)).toBeVisible();
     }
 
-    await page.goto("/logout");
+    await page.locator('form[action="/logout"] button').click();
 
     await page.goto("/login");
     await page.fill('input[name="employee_code"]', EMPLOYEE_CODE);
