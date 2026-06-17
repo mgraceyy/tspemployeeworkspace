@@ -1,0 +1,2 @@
+ALTER TABLE employees
+    ADD COLUMN must_change_pin BOOLEAN NOT NULL DEFAULT FALSE;

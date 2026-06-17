@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Shift Schedules</h1>
+  {% if content.selected %}
+  <p class="muted">Assigning shifts for {{ content.selected.full_name }}</p>
+  {% endif %}
+</section>
+
+<div class="grid-2">
+  <section class="panel">
+    <h2>Select Employee</h2>
+    <ul class="employee-list">
+      {% for emp in content.employees %}
+      <li><a href="/admin/shifts/{{ emp.id }}" {% if content.selected and content.selected.id == emp.id %}class="active"{% endif %}>{{ emp.full_name }} ({{ emp.employee_code }})</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {% if content.selected %}
+  <section class="panel">
+    <h2>Weekly Schedule</h2>
+    {% for day in content.day_rows %}
+    <form method="post" action="/admin/shifts" class="shift-row">
+      <input type="hidden" name="employee_id" value="{{ content.selected.id }}">
+      <input type="hidden" name="day_of_week" value="{{ day.day }}">
+      <span class="day-label">{{ day.name }}</span>
+      <input type="time" name="start_time" value="{{ day.start_time }}" required>
+      <input type="time" name="end_time" value="{{ day.end_time }}" required>
+      <button type="submit" class="btn btn-small btn-primary">Save</button>
+    </form>
+    {% endfor %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

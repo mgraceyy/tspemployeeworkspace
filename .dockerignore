@@ -1,0 +1,7 @@
+target
+.git
+.env
+terminals
+agent-tools
+*.md
+!README.md

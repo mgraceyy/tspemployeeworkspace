@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Clock In / Out</h1>
+  <p class="muted">Today: {{ content.today }} · Asia/Manila</p>
+</section>
+
+{% if content.shift %}
+<div class="info-card">
+  <h2>Scheduled Shift</h2>
+  <p>{{ content.shift.start_time }} – {{ content.shift.end_time }}</p>
+</div>
+{% endif %}
+
+<div class="clock-card status-{{ content.status }}">
+  {% if content.status == "not_started" %}
+  <p class="status-label">You are not clocked in</p>
+  <form method="post" action="/clock/in">
+    <button type="submit" class="btn btn-primary btn-large">Time In</button>
+  </form>
+  {% elif content.status == "clocked_in" %}
+  <p class="status-label">Clocked in at {{ content.entry.clock_in }}</p>
+  <form method="post" action="/clock/out">
+    <button type="submit" class="btn btn-danger btn-large">Time Out</button>
+  </form>
+  {% else %}
+  <p class="status-label">Day complete</p>
+  <dl class="summary-grid">
+    <div><dt>In</dt><dd>{{ content.entry.clock_in }}</dd></div>
+    <div><dt>Out</dt><dd>{{ content.entry.clock_out }}</dd></div>
+    <div><dt>Regular</dt><dd>{{ content.entry.regular }}</dd></div>
+    <div><dt>OT</dt><dd>
+      {% if content.entry.ot != "—" %}
+        {{ content.entry.ot }} ({{ content.entry.ot_status }})
+      {% else %}
+        —
+      {% endif %}
+    </dd></div>
+  </dl>
+  {% if content.entry.ot_status == "Pending" %}
+  <p class="alert alert-info">Overtime is pending manager approval.</p>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

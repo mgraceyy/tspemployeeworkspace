@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Edit Employee</h1>
+  <p class="muted">{{ content.employee.employee_code }} · {% if content.employee.is_active %}Active{% else %}Inactive{% endif %}</p>
+  <p><a href="/admin/employees">← Back to employees</a></p>
+</section>
+
+<div class="grid-2">
+  <section class="panel">
+    <h2>Details</h2>
+    <form method="post" action="/admin/employees/{{ content.employee.id }}" class="stack">
+      <label>Full Name
+        <input type="text" name="full_name" value="{{ content.employee.full_name }}" required>
+      </label>
+      <label>Role
+        <select name="role">
+          <option value="employee" {% if content.employee.role == "employee" %}selected{% endif %}>Employee</option>
+          <option value="manager" {% if content.employee.role == "manager" %}selected{% endif %}>Manager</option>
+          <option value="admin" {% if content.employee.role == "admin" %}selected{% endif %}>Admin</option>
+        </select>
+      </label>
+      <label>Manager
+        <select name="manager_id">
+          <option value="">None</option>
+          {% for emp in content.employees %}
+          {% if emp.role == "manager" or emp.role == "admin" %}
+          {% if emp.id != content.employee.id %}
+          <option value="{{ emp.id }}" {% if content.employee.manager_id == emp.id %}selected{% endif %}>{{ emp.full_name }}</option>
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Reset PIN</h2>
+    <p class="hint">The employee will be required to change this PIN on next login.</p>
+    <form method="post" action="/admin/employees/{{ content.employee.id }}/reset-pin" class="stack">
+      <label>New PIN
+        <input type="password" name="new_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}">
+      </label>
+      <button type="submit" class="btn btn-primary">Reset PIN</button>
+    </form>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Account Status</h2>
+  {% if content.employee.id == content.current_user_id %}
+  <p class="muted">You cannot deactivate your own account.</p>
+  {% else %}
+  <form method="post" action="/admin/employees/{{ content.employee.id }}/toggle-active" class="inline-form">
+    {% if content.employee.is_active %}
+    <button type="submit" class="btn btn-danger">Deactivate Employee</button>
+    {% else %}
+    <button type="submit" class="btn btn-primary">Reactivate Employee</button>
+    {% endif %}
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

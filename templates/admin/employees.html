@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Employees</h1>
+</section>
+
+<div class="grid-2">
+  <section class="panel">
+    <h2>Add Employee</h2>
+    <form method="post" action="/admin/employees" class="stack">
+      <label>Employee Code <input type="text" name="employee_code" required></label>
+      <label>Full Name <input type="text" name="full_name" required></label>
+      <label>PIN <input type="password" name="pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}"></label>
+      <p class="hint">New employees must change their PIN on first login.</p>
+      <label>Role
+        <select name="role">
+          <option value="employee">Employee</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </select>
+      </label>
+      <label>Manager
+        <select name="manager_id">
+          <option value="">None</option>
+          {% for emp in content.employees %}
+          {% if emp.role == "manager" or emp.role == "admin" %}
+          <option value="{{ emp.id }}">{{ emp.full_name }}</option>
+          {% endif %}
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary">Create Employee</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>All Employees</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Code</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for emp in content.employees %}
+          <tr>
+            <td>{{ emp.employee_code }}</td>
+            <td>{{ emp.full_name }}</td>
+            <td>{{ emp.role }}</td>
+            <td>{% if emp.is_active %}<span class="badge badge-approved">Active</span>{% else %}<span class="badge badge-rejected">Inactive</span>{% endif %}</td>
+            <td class="actions">
+              <a href="/admin/employees/{{ emp.id }}">Edit</a>
+              <a href="/admin/shifts/{{ emp.id }}">Shifts</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

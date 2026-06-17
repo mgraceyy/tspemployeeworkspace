@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Manager Dashboard</h1>
+  <p class="muted">Today: {{ content.today }} · Asia/Manila</p>
+</section>
+
+<section class="panel">
+  <h2>Team Attendance Today</h2>
+  {% if content.attendance %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Shift</th>
+          <th>In</th>
+          <th>Out</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for member in content.attendance %}
+        <tr>
+          <td>
+            <a href="/manager/team/{{ member.employee_id }}">{{ member.full_name }}</a>
+            ({{ member.employee_code }})
+          </td>
+          <td>{{ member.shift }}</td>
+          <td>{{ member.clock_in }}</td>
+          <td>{{ member.clock_out }}</td>
+          <td><span class="badge badge-{{ member.status }}">{{ member.status_label }}</span></td>
+          <td class="actions">
+            {% if member.entry_id %}
+            <a href="/manager/correct/{{ member.entry_id }}" class="btn btn-small btn-primary">Correct</a>
+            {% elif member.can_correct %}
+            <a href="/manager/team/{{ member.employee_id }}/correct" class="btn btn-small btn-primary">Add Entry</a>
+            {% endif %}
+            {% if member.can_mark_no_show %}
+            <form method="post" action="/manager/no-show" class="inline-form">
+              <input type="hidden" name="employee_id" value="{{ member.employee_id }}">
+              <button type="submit" class="btn btn-small btn-danger">No-Show</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No team members to display.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Pending OT Approvals</h2>
+  {% if content.pending_ot %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Date</th>
+          <th>Regular</th>
+          <th>OT</th>
+          <th>In</th>
+          <th>Out</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in content.pending_ot %}
+        <tr>
+          <td>{{ entry.full_name }} ({{ entry.employee_code }})</td>
+          <td>{{ entry.work_date }}</td>
+          <td>{{ entry.regular }}</td>
+          <td>{{ entry.ot }}</td>
+          <td>{{ entry.clock_in }}</td>
+          <td>{{ entry.clock_out }}</td>
+          <td class="actions">
+            <form method="post" action="/manager/ot/{{ entry.id }}/review" class="inline-form">
+              <input type="hidden" name="action" value="approve">
+              <button type="submit" class="btn btn-small btn-primary">Approve</button>
+            </form>
+            <form method="post" action="/manager/ot/{{ entry.id }}/review" class="inline-form">
+              <input type="hidden" name="action" value="reject">
+              <input type="text" name="note" placeholder="Reason (optional)" class="input-small">
+              <button type="submit" class="btn btn-small btn-danger">Reject</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No pending overtime approvals.</p>
+  {% endif %}
+</section>
+{% endblock %}

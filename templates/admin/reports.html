@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Payroll Reports</h1>
+  <p class="muted">{{ content.pay_period_type }} pay period: {{ content.period_label }}</p>
+  <div class="header-actions">
+    <a href="/admin/reports/export.csv" class="btn btn-primary">Download CSV</a>
+    <a href="/admin/reports/export.xlsx" class="btn btn-primary">Download Excel</a>
+  </div>
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Name</th>
+        <th>Regular Hrs</th>
+        <th>Approved OT</th>
+        <th>Pending OT</th>
+        <th>Payable Hrs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in content.rows %}
+      <tr>
+        <td>{{ row.employee_code }}</td>
+        <td>{{ row.full_name }}</td>
+        <td>{{ row.regular_hours }}</td>
+        <td>{{ row.approved_ot_hours }}</td>
+        <td>{{ row.pending_ot_hours }}</td>
+        <td><strong>{{ row.payable_hours }}</strong></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

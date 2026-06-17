@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Company Settings</h1>
+  <p class="muted">{{ content.settings.company_name }} · {{ content.settings.timezone }}</p>
+</section>
+
+<section class="panel">
+  <form method="post" action="/admin/settings" class="stack narrow">
+    <label>Break deduction (minutes)
+      <input type="number" name="break_minutes" value="{{ content.settings.break_minutes }}" required>
+    </label>
+    <label>OT threshold (minutes)
+      <input type="number" name="ot_threshold_minutes" value="{{ content.settings.ot_threshold_minutes }}" required>
+    </label>
+    <label>Late grace period (minutes)
+      <input type="number" name="grace_minutes" value="{{ content.settings.grace_minutes }}" required>
+    </label>
+    <label>Pay period
+      <select name="pay_period">
+        <option value="weekly" {% if content.settings.pay_period == "weekly" %}selected{% endif %}>Weekly (Sun–Sat)</option>
+        <option value="biweekly" {% if content.settings.pay_period == "biweekly" %}selected{% endif %}>Biweekly</option>
+        <option value="semimonthly" {% if content.settings.pay_period == "semimonthly" %}selected{% endif %}>Semi-monthly (1–15, 16–end)</option>
+        <option value="monthly" {% if content.settings.pay_period == "monthly" %}selected{% endif %}>Monthly</option>
+      </select>
+    </label>
+    <p class="hint">OT always requires manager approval. Reports use the selected pay period.</p>
+    <button type="submit" class="btn btn-primary">Save Settings</button>
+  </form>
+</section>
+{% endblock %}

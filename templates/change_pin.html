@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="login-card">
+  <h1>Change Your PIN</h1>
+  {% if content.forced %}
+  <p class="muted">You must set a new PIN before continuing.</p>
+  {% else %}
+  <p class="muted">Choose a new 4–6 digit PIN.</p>
+  {% endif %}
+  {% if content.error %}
+  <div class="alert alert-error">{{ content.error }}</div>
+  {% endif %}
+  <form method="post" action="/change-pin" class="stack">
+    {% if not content.forced %}
+    <label>
+      Current PIN
+      <input type="password" name="current_pin" required autocomplete="current-password">
+    </label>
+    {% endif %}
+    <label>
+      New PIN
+      <input type="password" name="new_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" autocomplete="new-password">
+    </label>
+    <label>
+      Confirm New PIN
+      <input type="password" name="confirm_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn btn-primary">Save PIN</button>
+  </form>
+</section>
+{% endblock %}

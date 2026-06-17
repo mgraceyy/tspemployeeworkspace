@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="login-card">
+  <h1>{{ company_name }}</h1>
+  <p class="muted">Sign in with your employee code and PIN</p>
+  {% if content.error %}
+  <div class="alert alert-error">{{ content.error }}</div>
+  {% endif %}
+  <form method="post" action="/login" class="stack">
+    <label>
+      Employee Code
+      <input type="text" name="employee_code" required autocomplete="username" placeholder="E0042">
+    </label>
+    <label>
+      PIN
+      <input type="password" name="pin" required autocomplete="current-password" placeholder="••••">
+    </label>
+    <button type="submit" class="btn btn-primary">Sign In</button>
+  </form>
+</section>
+{% endblock %}

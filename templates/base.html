@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} — {{ company_name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <span class="brand-name">{{ company_name }}</span>
+        <span class="brand-sub">Employee Timekeeping</span>
+      </div>
+      {% if user %}
+      <nav class="nav">
+        <a href="/">Clock</a>
+        <a href="/me/timesheet">My Timesheet</a>
+        {% if user.role == "manager" or user.role == "admin" %}
+        <a href="/manager">Manager</a>
+        <a href="/manager/team">Team</a>
+        {% endif %}
+        {% if user.role == "admin" %}
+        <a href="/admin/employees">Employees</a>
+        <a href="/admin/reports">Reports</a>
+        <a href="/admin/settings">Settings</a>
+        {% endif %}
+        <form method="post" action="/logout" class="inline-form">
+          <button type="submit" class="link-button">Logout ({{ user.full_name }})</button>
+        </form>
+      </nav>
+      {% endif %}
+    </div>
+  </header>
+  <main class="container">
+    {% block page %}{% endblock %}
+  </main>
+</body>
+</html>
