@@ -2,11 +2,13 @@ use dtr::auth::UserSession;
 use dtr::db;
 use dtr::error::AppError;
 use dtr::models::AttendanceStatus;
+use dtr::models::PayPeriodType;
 use dtr::models::RequirementStatus;
 use dtr::models::{OtStatus, UserRole};
 use dtr::services::attendance::mark_absence_for_employee;
 use dtr::services::audit::{list_audit_logs, log_action, AuditLogQuery};
 use dtr::services::clock::{clock_in, clock_out, ot_status_for_minutes};
+use dtr::services::compensation::{get_compensation, upsert_profile};
 use dtr::services::corrections::{
     create_corrected_entry, list_correction_logs, CorrectionLogQuery, CorrectionSubmission,
 };
@@ -22,6 +24,7 @@ use dtr::services::onboarding::{
     bulk_assign_department, list_admin_employee_rows, profile_completeness_pct, AdminEmployeeQuery,
 };
 use dtr::services::ot::review_overtime;
+use dtr::services::payroll::{gross_pay_cents, GrossPayInput};
 use dtr::services::profile::{get_profile, update_admin, update_self_service, AdminProfileInput};
 use dtr::services::reports::{payroll_summary, PayrollFilters};
 use dtr::services::requirements::{
@@ -1413,4 +1416,63 @@ async fn overlapping_pay_period_close_is_rejected() {
     reopen_pay_period(&pool, first_start, first_end)
         .await
         .expect("cleanup reopen");
+}
+
+#[tokio::test]
+async fn compensation_profile_persists_and_gross_pay_follows_policy() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("CMPA");
+    let emp_code = unique_code("CMPE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Comp Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Comp Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let effective = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
+    upsert_profile(&pool, employee.id, 2_600_000, 132, effective, admin.id)
+        .await
+        .expect("upsert compensation");
+
+    let profile = get_compensation(&pool, employee.id)
+        .await
+        .expect("get compensation")
+        .expect("profile exists");
+    assert_eq!(profile.monthly_salary_cents, 2_600_000);
+    assert_eq!(profile.ot_rate_percent, 132);
+
+    let gross = gross_pay_cents(&GrossPayInput {
+        monthly_salary_cents: profile.monthly_salary_cents,
+        ot_rate_percent: profile.ot_rate_percent,
+        pay_period: PayPeriodType::Semimonthly,
+        approved_ot_minutes: 60,
+        no_show_days: 1,
+    });
+    assert_eq!(gross, 1_216_500);
+
+    let _ = sqlx::query("DELETE FROM compensation_profiles WHERE employee_id = $1")
+        .bind(employee.id)
+        .execute(&pool)
+        .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }

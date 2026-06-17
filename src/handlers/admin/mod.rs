@@ -1,5 +1,6 @@
 mod audit;
 mod common;
+mod compensation;
 mod corrections;
 mod employees;
 mod holidays;
@@ -8,6 +9,7 @@ mod settings;
 mod shifts;
 
 pub use audit::audit_page;
+pub use compensation::{compensation_page, save_compensation_action};
 pub use corrections::corrections_page;
 pub use employees::{
     bulk_assign_department_action, create_employee_action, edit_employee_page, employees_page,

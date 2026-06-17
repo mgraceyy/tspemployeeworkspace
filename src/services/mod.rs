@@ -1,6 +1,7 @@
 pub mod attendance;
 pub mod audit;
 pub mod clock;
+pub mod compensation;
 pub mod corrections;
 pub mod employees;
 pub mod eod;
@@ -14,6 +15,7 @@ pub mod notifications;
 pub mod onboarding;
 pub mod ot;
 pub mod pagination;
+pub mod payroll;
 pub mod payroll_controls;
 pub mod reports;
 pub mod settings;

@@ -1157,3 +1157,66 @@ async fn employee_can_download_own_requirement_file_via_http() {
     cleanup_requirement_type(&pool, req_type.id).await;
     cleanup_employee(&pool, &code).await;
 }
+
+#[tokio::test]
+async fn admin_can_save_compensation_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("CMPAD");
+    let emp_code = unique_code("CMPEM");
+    create_employee(
+        &pool,
+        &admin_code,
+        "Compensation Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("create admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Compensation Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("create employee");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let path = format!("/admin/employees/{}/compensation", employee.id);
+    let (_, comp_html, cookies) = get(&mut app, &path, &cookies).await;
+    assert!(comp_html.contains("Monthly salary"));
+    let csrf = extract_csrf_token(&comp_html).expect("csrf");
+    let body = format!(
+        "monthly_salary=26000.00&ot_rate_percent=132&effective_from=2026-01-01&csrf_token={csrf}"
+    );
+    let (status, _, _) = post_form(&mut app, &path, &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let salary_cents: i64 = sqlx::query_scalar(
+        "SELECT monthly_salary_cents FROM compensation_profiles WHERE employee_id = $1",
+    )
+    .bind(employee.id)
+    .fetch_one(&pool)
+    .await
+    .expect("salary");
+    assert_eq!(salary_cents, 2_600_000);
+
+    let emp_cookies = login_as(&mut app, &emp_code, TEST_PIN).await;
+    let (status, _, _) = get(&mut app, &path, &emp_cookies).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let _ = sqlx::query("DELETE FROM compensation_profiles WHERE employee_id = $1")
+        .bind(employee.id)
+        .execute(&pool)
+        .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Employee Compensation</h1>
+  <p class="muted">{{ content.employee_code }} · {{ content.full_name }}</p>
+  <p>
+    <a href="/admin/employees">← Employees</a>
+    · <a href="/admin/employees/{{ content.employee_id }}">Account</a>
+    · <a href="/admin/employees/{{ content.employee_id }}/profile">Profile</a>
+    · <a href="/admin/employees/{{ content.employee_id }}/requirements">Requirements</a>
+  </p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>Monthly salary</h2>
+  <p class="hint">All employees are on <strong>monthly</strong> pay. OT is calculated at the hourly equivalent × OT rate (default 132%). No-shows reduce gross pay by one daily rate per day. Sick and vacation days are tracked but do not adjust pay in this version.</p>
+  <p class="muted">Daily rate = monthly salary ÷ {{ content.working_days }} working days.</p>
+
+  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>Monthly salary (PHP)
+      <input type="text" name="monthly_salary" value="{{ content.monthly_salary }}" required
+        inputmode="decimal" placeholder="e.g. 26000.00">
+    </label>
+    <label>OT rate (%)
+      <input type="number" name="ot_rate_percent" value="{{ content.ot_rate_percent }}" min="100" max="300" step="1">
+      <span class="hint">132 = 132% of hourly rate for approved overtime minutes.</span>
+    </label>
+    <label>Effective from
+      <input type="date" name="effective_from" value="{{ content.effective_from }}" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Save compensation</button>
+  </form>
+</section>
+{% endblock %}

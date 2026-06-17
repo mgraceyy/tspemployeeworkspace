@@ -155,6 +155,10 @@ where
             get(profile::admin_profile_page).post(profile::admin_update_profile),
         )
         .route(
+            "/admin/employees/{employee_id}/compensation",
+            get(admin::compensation_page).post(admin::save_compensation_action),
+        )
+        .route(
             "/admin/employees/{employee_id}/requirements",
             get(requirements::admin_employee_requirements),
         )

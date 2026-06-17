@@ -147,7 +147,7 @@ When `METRICS_TOKEN` is set, pass `Authorization: Bearer <token>` or `?token=<to
 | Public | `/login`, `/change-pin`, `/logout`, `/health`, `/metrics` |
 | Employee | `/`, `/clock/in`, `/clock/out`, `/me/timesheet`, `/me/timesheet/export.csv`, `/me/leave`, `/me/holidays`, `/me/profile`, `/me/requirements`, `/me/eod`, `/me/eod/history`, `/me/team/eod`, `/notifications` |
 | Manager | `/manager`, `/manager/team`, `/manager/team/{id}/export.csv`, `/manager/correct`, `/manager/absence`, `/manager/ot/{id}/review`, `/manager/eod`, `/manager/eod/export.csv`, `/manager/leave`, `/manager/requirements` |
-| Admin | `/admin/employees`, `/admin/requirements`, `/admin/shifts`, `/admin/settings`, `/admin/holidays`, `/admin/reports` (CSV/Excel, close/reopen period), `/admin/corrections`, `/admin/audit`, `/admin/eod` |
+| Admin | `/admin/employees`, `/admin/employees/{id}/compensation`, `/admin/requirements`, `/admin/shifts`, `/admin/settings`, `/admin/holidays`, `/admin/reports` (CSV/Excel, close/reopen period), `/admin/corrections`, `/admin/audit`, `/admin/eod` |
 
 ## Admin onboarding tips
 
@@ -170,7 +170,7 @@ docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
 ## Payroll roadmap
 
 v0.1.0 covers **time & attendance reporting** (hours, OT, leave counts, period close, CSV/Excel export).  
-**Compensation, deductions, and payslips** are planned in phases — see [docs/PAYROLL.md](docs/PAYROLL.md).
+**Compensation profiles** (monthly salary, 132% OT) are in progress; **payroll runs, manual deductions, and payslips** follow in later phases — see [docs/PAYROLL.md](docs/PAYROLL.md).
 
 ## Security headers
 
