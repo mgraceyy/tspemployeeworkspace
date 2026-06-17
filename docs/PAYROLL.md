@@ -48,7 +48,7 @@ Implementation: `src/services/payroll/compute.rs`
 | Pay period close / reopen | Done |
 | Hours + leave summary exports | Done |
 
-### v0.2.0 (in progress) — Phase 1 compensation
+### v0.2.0 — Phase 1 compensation ✅
 
 | Area | Status |
 |------|--------|
@@ -56,7 +56,16 @@ Implementation: `src/services/payroll/compute.rs`
 | Admin UI `/admin/employees/{id}/compensation` | Done |
 | Rate history on salary change | Done |
 | Gross pay calculation module (unit tested) | Done |
-| Payroll runs / payslips | **Phase 2–4** |
+
+### v0.2.0 — Phase 2 payroll runs ✅
+
+| Area | Status |
+|------|--------|
+| `payroll_runs` + `payroll_lines` tables | Done |
+| Admin UI `/admin/payroll` | Done |
+| Draft run from closed period | Done |
+| Finalize (lock gross pay) | Done |
+| Manual deductions / payslips | **Phase 3–4** |
 
 ---
 
@@ -87,7 +96,7 @@ Time entries + approvals
 
 ---
 
-## Phase 2 — Payroll run engine (next)
+## Phase 2 — Payroll run engine ✅
 
 **Goal:** Preview and finalize gross pay for a **closed** pay period.
 
@@ -194,18 +203,20 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | Route | Status |
 |-------|--------|
 | `/admin/employees/{id}/compensation` | ✅ Done |
-| `/admin/payroll` | Phase 2 |
-| `/admin/payroll/new` | Phase 2 |
-| `/admin/payroll/{id}` | Phase 2 |
+| `/admin/payroll` | ✅ Done |
+| `/admin/payroll/{id}` | ✅ Done |
+| `/admin/payroll/{id}/finalize` | ✅ Done |
 | `/me/payslips` | Phase 4 |
 
 ---
 
-## Remaining open questions
+## Operational decisions (locked)
 
-1. **Who runs payroll** — same admin, or separate finance role?
-2. **Accounting handoff** — Excel only, or specific bank CSV format?
-3. **13th month** — track in-app or external spreadsheet for now?
+| Topic | Choice |
+|-------|--------|
+| Who runs payroll | **Admin** (same role as today — no separate finance user) |
+| Bank / accounting export | **Deferred** — manual handoff outside the app for now |
+| 13th month | **External** — keep in spreadsheet / accounting tool |
 
 ---
 

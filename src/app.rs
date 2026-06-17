@@ -196,6 +196,15 @@ where
             "/admin/holidays/{holiday_id}/delete",
             post(admin::delete_holiday_action),
         )
+        .route(
+            "/admin/payroll",
+            get(admin::payroll_runs_page).post(admin::create_payroll_run_action),
+        )
+        .route("/admin/payroll/{run_id}", get(admin::payroll_run_page))
+        .route(
+            "/admin/payroll/{run_id}/finalize",
+            post(admin::finalize_payroll_run_action),
+        )
         .route("/admin/reports", get(admin::reports_page))
         .route(
             "/admin/reports/presets",

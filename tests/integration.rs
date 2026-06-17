@@ -35,7 +35,9 @@ use dtr::services::settings::{get_settings, update_settings, SettingsUpdate};
 
 use dtr::models::EodTaskKind;
 use dtr::models::LeaveRequestType;
+use dtr::models::PayrollRunStatus;
 use dtr::services::leave::{create_request, review_request};
+use dtr::services::payroll::{create_draft_run, finalize_run, get_run, list_lines_for_run};
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
 use dtr::services::timezone::{combine_date_time, company_date_now, now_company};
 use sqlx::PgPool;
@@ -1473,6 +1475,93 @@ async fn compensation_profile_persists_and_gross_pay_follows_policy() {
         .bind(employee.id)
         .execute(&pool)
         .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+async fn ensure_all_active_have_compensation(pool: &PgPool, admin_id: Uuid, effective: Date) {
+    let ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT e.id FROM employees e
+         LEFT JOIN compensation_profiles c ON c.employee_id = e.id
+         WHERE e.is_active = TRUE AND c.employee_id IS NULL",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+    for id in ids {
+        let _ = upsert_profile(pool, id, 1_000_000, 132, effective, admin_id).await;
+    }
+}
+
+#[tokio::test]
+async fn admin_can_create_and_finalize_payroll_run() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PYAD");
+    let emp_code = unique_code("PYEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Payroll Run Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let _employee = create_employee(
+        &pool,
+        &emp_code,
+        "Payroll Run Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let today = company_date_now(&settings).expect("today");
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    close_pay_period(&pool, today, today, admin.id, Some("payroll run test"))
+        .await
+        .expect("close period");
+
+    let run_id = create_draft_run(&pool, today, today, admin.id, &settings, None)
+        .await
+        .expect("create draft");
+    let run = get_run(&pool, run_id).await.expect("get run");
+    assert_eq!(run.status, PayrollRunStatus::Draft);
+
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    assert!(!lines.is_empty());
+    assert!(lines
+        .iter()
+        .any(|l| l.employee_code == emp_code.to_uppercase()));
+
+    finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect("finalize");
+    let run = get_run(&pool, run_id).await.expect("get run");
+    assert_eq!(run.status, PayrollRunStatus::Finalized);
+
+    let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM payroll_runs WHERE id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    reopen_pay_period(&pool, today, today)
+        .await
+        .expect("reopen");
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
 }

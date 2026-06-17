@@ -14,9 +14,7 @@ use crate::handlers::flash::redirect_with_flash;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     audit::log_action,
-    compensation::{
-        format_salary_cents, get_compensation, parse_salary_to_cents, upsert_profile,
-    },
+    compensation::{format_salary_cents, get_compensation, parse_salary_to_cents, upsert_profile},
     employees::find_by_id,
     settings::get_settings,
     timezone::{format_date, parse_date},

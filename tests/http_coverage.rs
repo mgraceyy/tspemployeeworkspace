@@ -1220,3 +1220,116 @@ async fn admin_can_save_compensation_via_http() {
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
 }
+
+#[tokio::test]
+async fn admin_can_finalize_payroll_run_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PYHT");
+    let emp_code = unique_code("PYHE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Payroll HTTP Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("create admin");
+    let _employee = create_employee(
+        &pool,
+        &emp_code,
+        "Payroll HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("create employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let today = company_date_now(&settings).expect("today");
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    let active_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT e.id FROM employees e
+         LEFT JOIN compensation_profiles c ON c.employee_id = e.id
+         WHERE e.is_active = TRUE AND c.employee_id IS NULL",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("missing comp ids");
+    for id in active_ids {
+        dtr::services::compensation::upsert_profile(&pool, id, 1_000_000, 132, effective, admin.id)
+            .await
+            .expect("upsert comp");
+    }
+
+    dtr::services::payroll_controls::close_pay_period(
+        &pool,
+        today,
+        today,
+        admin.id,
+        Some("http payroll test"),
+    )
+    .await
+    .expect("close period");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let (_, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
+    assert!(payroll_html.contains("Create draft"));
+    let csrf = extract_csrf_token(&payroll_html).expect("csrf");
+    let start = format_date(today);
+    let body = format!("period_start={start}&period_end={start}&csrf_token={csrf}");
+    let (status, _, cookies) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let run_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM payroll_runs WHERE period_start = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(today)
+    .fetch_one(&pool)
+    .await
+    .expect("run id");
+
+    let run_path = format!("/admin/payroll/{run_id}");
+    let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
+    assert!(run_html.contains("Finalize run"));
+    let csrf = extract_csrf_token(&run_html).expect("csrf");
+    let finalize_path = format!("/admin/payroll/{run_id}/finalize");
+    let (status, _, _) = post_form(
+        &mut app,
+        &finalize_path,
+        &cookies,
+        &format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let status: String = sqlx::query_scalar("SELECT status::text FROM payroll_runs WHERE id = $1")
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await
+        .expect("status");
+    assert_eq!(status, "finalized");
+
+    let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM payroll_runs WHERE id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1")
+        .bind(today)
+        .execute(&pool)
+        .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}

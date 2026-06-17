@@ -2,6 +2,7 @@ pub mod compensation;
 pub mod employee;
 pub mod holiday;
 pub mod leave;
+pub mod payroll_run;
 
 pub mod eod;
 pub mod profile;
@@ -14,6 +15,7 @@ pub use compensation::CompensationProfile;
 pub use employee::{Employee, EmployeeSummary, UserRole};
 pub use holiday::CompanyHoliday;
 pub use leave::{LeaveRequest, LeaveRequestStatus, LeaveRequestType, LeaveRequestWithEmployee};
+pub use payroll_run::{PayrollLine, PayrollLineWithEmployee, PayrollRun, PayrollRunStatus};
 
 pub use eod::{EodHistoryItem, EodReport, EodReportStatus, EodReportSummary, EodTask, EodTaskKind};
 pub use profile::{EmployeeProfile, EmployeeWorkProfile};

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Payroll Run</h1>
+  <p class="muted">{{ content.period_label }} · <strong>{{ content.status }}</strong></p>
+  {% if content.note %}<p class="muted">{{ content.note }}</p>{% endif %}
+  <p><a href="/admin/payroll">← All payroll runs</a></p>
+</section>
+
+{% if content.has_pending_ot %}
+<div class="alert alert-warning">
+  This run excludes <strong>{{ content.pending_ot_minutes }}</strong> pending OT minutes — only approved OT is included in gross pay.
+</div>
+{% endif %}
+
+<section class="panel">
+  <h2>Summary</h2>
+  <p>{{ content.line_count }} employee(s) · Total gross: <strong>PHP {{ content.total_gross }}</strong></p>
+  {% if content.is_draft %}
+  <form method="post" action="/admin/payroll/{{ content.run_id }}/finalize" class="inline-form"
+    onsubmit="return confirm('Finalize this payroll run? Gross pay will be locked for this period.');">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn btn-primary">Finalize run</button>
+  </form>
+  {% endif %}
+</section>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Name</th>
+        <th>Dept</th>
+        <th>No-show</th>
+        <th>Appr. OT (min)</th>
+        <th>Base</th>
+        <th>No-show ded.</th>
+        <th>OT pay</th>
+        <th>Gross</th>
+        <th>Net</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in content.lines %}
+      <tr>
+        <td>{{ line.employee_code }}</td>
+        <td>{{ line.full_name }}</td>
+        <td>{{ line.department or "—" }}</td>
+        <td>{{ line.no_show_days }}</td>
+        <td>{{ line.approved_ot_minutes }}{% if line.pending_ot_minutes > 0 %} <span class="muted">(+{{ line.pending_ot_minutes }} pending)</span>{% endif %}</td>
+        <td>{{ line.base_pay }}</td>
+        <td>{% if line.no_show_deduction != "0.00" %}-{{ line.no_show_deduction }}{% else %}—{% endif %}</td>
+        <td>{{ line.ot_pay }}</td>
+        <td><strong>{{ line.gross_pay }}</strong></td>
+        <td>{{ line.net_pay }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

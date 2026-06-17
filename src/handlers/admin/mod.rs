@@ -4,6 +4,7 @@ mod compensation;
 mod corrections;
 mod employees;
 mod holidays;
+mod payroll;
 mod reports;
 mod settings;
 mod shifts;
@@ -16,6 +17,9 @@ pub use employees::{
     reset_pin_action, toggle_active_action, update_employee_action,
 };
 pub use holidays::{add_holiday_action, delete_holiday_action, holidays_page};
+pub use payroll::{
+    create_payroll_run_action, finalize_payroll_run_action, payroll_run_page, payroll_runs_page,
+};
 pub use reports::{
     close_pay_period_action, delete_report_preset_action, export_csv, export_detail_csv,
     export_xlsx, reopen_pay_period_action, reports_page, save_report_preset_action,
