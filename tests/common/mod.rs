@@ -37,19 +37,11 @@ pub struct TestAppConfig {
     pub metrics_token: Option<String>,
 }
 
-fn env_is_truthy(name: &str) -> bool {
-    std::env::var(name).ok().is_some_and(|value| {
-        matches!(
-            value.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-}
-
 impl Default for TestAppConfig {
     fn default() -> Self {
         Self {
-            shared_rate_limits: env_is_truthy("SHARED_RATE_LIMITS"),
+            // Integration tests opt in via TestAppConfig { shared_rate_limits: true, .. }.
+            shared_rate_limits: false,
             trust_proxy_headers: false,
             max_upload_bytes: 5 * 1024 * 1024,
             metrics_token: None,
@@ -57,7 +49,7 @@ impl Default for TestAppConfig {
     }
 }
 
-static TEST_SCHEMA_READY: OnceLock<()> = OnceLock::new();
+static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 
 pub async fn reset_shared_test_state(pool: &PgPool) {
     sqlx::query("DELETE FROM closed_pay_periods")
@@ -68,21 +60,9 @@ pub async fn reset_shared_test_state(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("reset rate_limit_events");
-    let _ = sqlx::query("DELETE FROM tower_sessions")
+    let _ = sqlx::query(r#"DELETE FROM "tower_sessions"."session""#)
         .execute(pool)
         .await;
-}
-
-async fn ensure_test_schema(pool: &PgPool) {
-    if TEST_SCHEMA_READY.get().is_some() {
-        return;
-    }
-    dtr::db::migrate(pool)
-        .await
-        .expect("test database migrations");
-    let session_store = PostgresStore::new(pool.clone());
-    session_store.migrate().await.expect("session migrations");
-    let _ = TEST_SCHEMA_READY.set(());
 }
 
 pub fn url_encode(value: &str) -> String {
@@ -125,16 +105,27 @@ pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     let url = std::env::var("DATABASE_URL").ok()?;
 
+    if let Some(pool) = TEST_DB_POOL.get() {
+        reset_shared_test_state(pool).await;
+        return Some(pool.clone());
+    }
+
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(3)
         .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(30))
+        .idle_timeout(Duration::from_secs(10))
         .connect(&url)
         .await
         .ok()?;
-    ensure_test_schema(&pool).await;
-    reset_shared_test_state(&pool).await;
-    Some(pool)
+    dtr::db::migrate(&pool)
+        .await
+        .expect("test database migrations");
+    let session_store = PostgresStore::new(pool.clone());
+    session_store.migrate().await.expect("session migrations");
+    let _ = TEST_DB_POOL.set(pool);
+    let pool = TEST_DB_POOL.get()?;
+    reset_shared_test_state(pool).await;
+    Some(pool.clone())
 }
 
 pub async fn test_app(pool: PgPool) -> Router {
@@ -152,13 +143,7 @@ pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router
         .with_signed(session_key);
 
     let (login_limiter, post_limiter) = if config.shared_rate_limits {
-        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL for shared rate limits");
-        let limit_pool = PgPoolOptions::new()
-            .max_connections(2)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect(&url)
-            .await
-            .expect("rate limit pool");
+        let limit_pool = pool.clone();
         (
             LoginLimiter::postgres(limit_pool.clone()),
             PostRateLimiter::postgres(limit_pool),
