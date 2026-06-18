@@ -65,7 +65,16 @@ jobs:
         run: cargo build --release
 
       - name: Run tests
-        run: cargo test -j 1 -- --test-threads 1
+        run: |
+          set -o pipefail
+          cargo test -j 1 -- --test-threads 1 2>&1 | tee cargo-test.log
+      - name: Upload test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-test-log-shared-rate-limits-${{ matrix.shared_rate_limits }}
+          path: cargo-test.log
+          retention-days: 7
 
   docker:
     runs-on: ubuntu-latest
