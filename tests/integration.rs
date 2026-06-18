@@ -67,6 +67,21 @@ fn unique_code(prefix: &str) -> String {
     format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8])
 }
 
+async fn create_test_admin(pool: &PgPool) -> (Uuid, String) {
+    let code = unique_code("TADM");
+    let admin = create_employee(
+        pool,
+        &code,
+        "Integration Test Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("create test admin");
+    (admin.id, code)
+}
+
 async fn cleanup_employee(pool: &PgPool, code: &str) {
     let _ = sqlx::query(
         "DELETE FROM correction_logs WHERE time_entry_id IN (
@@ -599,11 +614,7 @@ async fn eod_unlock_allows_editing_again() {
         .await
         .expect("reminder"));
 
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     unlock_report(&pool, report.id, admin_id)
         .await
@@ -634,6 +645,7 @@ async fn eod_unlock_allows_editing_again() {
     assert_eq!(history[0].summary, "Updated after unlock");
 
     cleanup_employee(&pool, &code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -687,11 +699,7 @@ async fn requirement_expiry_allows_resubmit() {
     .await
     .expect("submit");
 
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     review_requirement(
         &pool,
@@ -747,6 +755,7 @@ async fn requirement_expiry_allows_resubmit() {
     assert!(resubmitted_row.expires_at.is_none());
 
     cleanup_employee(&pool, &code).await;
+    cleanup_employee(&pool, &admin_code).await;
     let _ = sqlx::query("DELETE FROM requirement_types WHERE id = $1")
         .bind(req_type.id)
         .execute(&pool)
@@ -769,11 +778,7 @@ async fn bulk_department_assign_updates_profiles() {
         .await
         .expect("create b");
 
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let count = bulk_assign_department(&pool, &[a.id, b.id], "Operations", admin_id)
         .await
@@ -789,6 +794,7 @@ async fn bulk_department_assign_updates_profiles() {
 
     cleanup_employee(&pool, &code_a).await;
     cleanup_employee(&pool, &code_b).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -848,11 +854,7 @@ async fn leave_types_appear_in_payroll_summary() {
     .await
     .expect("create employee");
 
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let settings = get_settings(&pool).await.expect("settings");
     let today = company_date_now(&settings).expect("today");
@@ -894,6 +896,7 @@ async fn leave_types_appear_in_payroll_summary() {
     assert_eq!(row.offset_days, 1);
 
     cleanup_employee(&pool, &code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -1090,11 +1093,7 @@ async fn closed_pay_period_blocks_leave_create_and_approval() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let today = company_date_now(&settings).expect("today");
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let pending = create_request(
         &pool,
@@ -1140,6 +1139,7 @@ async fn closed_pay_period_blocks_leave_create_and_approval() {
         .execute(&pool)
         .await;
     cleanup_employee(&pool, &code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -1174,11 +1174,7 @@ async fn closed_pay_period_blocks_ot_eod_and_absence() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let today = company_date_now(&settings).expect("today");
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let entry_id: Uuid = sqlx::query_scalar(
         "INSERT INTO time_entries
@@ -1244,6 +1240,7 @@ async fn closed_pay_period_blocks_ot_eod_and_absence() {
         .await;
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &mgr_code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -1267,11 +1264,7 @@ async fn reopen_pay_period_allows_clock_in_again() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let today = company_date_now(&settings).expect("today");
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     close_pay_period(&pool, today, today, admin_id, Some("reopen test"))
         .await
@@ -1296,6 +1289,7 @@ async fn reopen_pay_period_allows_clock_in_again() {
         .execute(&pool)
         .await;
     cleanup_employee(&pool, &code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -1385,11 +1379,7 @@ async fn duplicate_pay_period_close_is_idempotent() {
 
     let start = Date::from_calendar_date(2099, Month::February, 1).unwrap();
     let end = Date::from_calendar_date(2099, Month::February, 7).unwrap();
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let first = close_pay_period(&pool, start, end, admin_id, Some("first close"))
         .await
@@ -1404,6 +1394,7 @@ async fn duplicate_pay_period_close_is_idempotent() {
     reopen_pay_period(&pool, start, end)
         .await
         .expect("cleanup reopen");
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
@@ -1413,11 +1404,7 @@ async fn overlapping_pay_period_close_is_rejected() {
         return;
     };
 
-    let admin_id =
-        sqlx::query_scalar::<_, Uuid>("SELECT id FROM employees WHERE role = 'admin' LIMIT 1")
-            .fetch_one(&pool)
-            .await
-            .expect("admin id");
+    let (admin_id, admin_code) = create_test_admin(&pool).await;
 
     let first_start = Date::from_calendar_date(2099, Month::April, 1).unwrap();
     let first_end = Date::from_calendar_date(2099, Month::April, 7).unwrap();
@@ -1450,6 +1437,7 @@ async fn overlapping_pay_period_close_is_rejected() {
     reopen_pay_period(&pool, first_start, first_end)
         .await
         .expect("cleanup reopen");
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]
