@@ -10,20 +10,20 @@ use axum::{
 use dtr::app::create_app;
 use dtr::auth::login_limiter::LoginLimiter;
 use dtr::auth::post_limiter::PostRateLimiter;
-use dtr::metrics::AppMetrics;
 use dtr::error::AppResult;
+use dtr::metrics::AppMetrics;
 use dtr::models::UserRole;
 use dtr::services::employees::create_employee;
 use dtr::state::AppState;
 use dtr::templates::engine;
 use sqlx::PgPool;
-use uuid::Uuid;
 use tower::ServiceExt;
 use tower_sessions::{
     cookie::{Key, SameSite},
     Expiry, SessionManagerLayer,
 };
 use tower_sessions_sqlx_store::PostgresStore;
+use uuid::Uuid;
 
 const TEST_SESSION_SECRET: &[u8] =
     b"test-session-secret-at-least-64-characters-long-for-signed-cookies";
@@ -64,8 +64,7 @@ pub async fn create_ready_employee(
     role: UserRole,
     manager_id: Option<Uuid>,
 ) -> AppResult<dtr::models::EmployeeSummary> {
-    let employee =
-        create_employee(pool, employee_code, full_name, pin, role, manager_id).await?;
+    let employee = create_employee(pool, employee_code, full_name, pin, role, manager_id).await?;
     clear_must_change_pin(pool, employee.id).await?;
     Ok(employee)
 }
