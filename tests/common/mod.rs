@@ -57,7 +57,7 @@ impl Default for TestAppConfig {
     }
 }
 
-static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static TEST_SCHEMA_READY: OnceLock<()> = OnceLock::new();
 
 pub async fn reset_shared_test_state(pool: &PgPool) {
     sqlx::query("DELETE FROM closed_pay_periods")
@@ -68,6 +68,21 @@ pub async fn reset_shared_test_state(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("reset rate_limit_events");
+    let _ = sqlx::query("DELETE FROM tower_sessions")
+        .execute(pool)
+        .await;
+}
+
+async fn ensure_test_schema(pool: &PgPool) {
+    if TEST_SCHEMA_READY.get().is_some() {
+        return;
+    }
+    dtr::db::migrate(pool)
+        .await
+        .expect("test database migrations");
+    let session_store = PostgresStore::new(pool.clone());
+    session_store.migrate().await.expect("session migrations");
+    let _ = TEST_SCHEMA_READY.set(());
 }
 
 pub fn url_encode(value: &str) -> String {
@@ -110,24 +125,16 @@ pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     let url = std::env::var("DATABASE_URL").ok()?;
 
-    if let Some(pool) = TEST_DB_POOL.get() {
-        reset_shared_test_state(pool).await;
-        return Some(pool.clone());
-    }
-
     let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(Duration::from_secs(30))
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(10))
+        .idle_timeout(Duration::from_secs(30))
         .connect(&url)
         .await
         .ok()?;
-    dtr::db::migrate(&pool)
-        .await
-        .expect("test database migrations");
-    let _ = TEST_DB_POOL.set(pool);
-    let pool = TEST_DB_POOL.get()?;
-    reset_shared_test_state(pool).await;
-    Some(pool.clone())
+    ensure_test_schema(&pool).await;
+    reset_shared_test_state(&pool).await;
+    Some(pool)
 }
 
 pub async fn test_app(pool: PgPool) -> Router {
@@ -136,7 +143,6 @@ pub async fn test_app(pool: PgPool) -> Router {
 
 pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
     let session_store = PostgresStore::new(pool.clone());
-    session_store.migrate().await.expect("session migrate");
 
     let session_key = Key::try_from(TEST_SESSION_SECRET).expect("session key");
     let session_layer = SessionManagerLayer::new(session_store)
@@ -146,7 +152,13 @@ pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router
         .with_signed(session_key);
 
     let (login_limiter, post_limiter) = if config.shared_rate_limits {
-        let limit_pool = pool.clone();
+        let url = std::env::var("DATABASE_URL").expect("DATABASE_URL for shared rate limits");
+        let limit_pool = PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect(&url)
+            .await
+            .expect("rate limit pool");
         (
             LoginLimiter::postgres(limit_pool.clone()),
             PostRateLimiter::postgres(limit_pool),
