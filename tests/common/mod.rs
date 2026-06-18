@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::{
     body::Body,
@@ -36,15 +36,49 @@ pub struct TestAppConfig {
     pub metrics_token: Option<String>,
 }
 
+fn env_is_truthy(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 impl Default for TestAppConfig {
     fn default() -> Self {
         Self {
-            shared_rate_limits: false,
+            shared_rate_limits: env_is_truthy("SHARED_RATE_LIMITS"),
             trust_proxy_headers: false,
             max_upload_bytes: 5 * 1024 * 1024,
             metrics_token: None,
         }
     }
+}
+
+static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+
+pub async fn reset_shared_test_state(pool: &PgPool) {
+    let _ = sqlx::query("DELETE FROM closed_pay_periods")
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM rate_limit_events")
+        .execute(pool)
+        .await;
+}
+
+pub fn url_encode(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(byte as char);
+            }
+            b' ' => encoded.push_str("%20"),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }
 
 pub async fn clear_must_change_pin(pool: &PgPool, employee_id: Uuid) -> AppResult<()> {
@@ -72,9 +106,18 @@ pub async fn create_ready_employee(
 pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     let url = std::env::var("DATABASE_URL").ok()?;
-    let pool = dtr::db::connect_with_options(&url, 10).await.ok()?;
+
+    if let Some(pool) = TEST_DB_POOL.get() {
+        reset_shared_test_state(pool).await;
+        return Some(pool.clone());
+    }
+
+    let pool = dtr::db::connect_with_options(&url, 5).await.ok()?;
     dtr::db::migrate(&pool).await.ok()?;
-    Some(pool)
+    let _ = TEST_DB_POOL.set(pool);
+    let pool = TEST_DB_POOL.get()?;
+    reset_shared_test_state(pool).await;
+    Some(pool.clone())
 }
 
 pub async fn test_app(pool: PgPool) -> Router {
@@ -212,8 +255,13 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
     let (_, login_html, cookies) = get(app, "/login", "").await;
     let csrf = extract_csrf_token(&login_html).expect("csrf token");
     let body = format!("employee_code={code}&pin={pin}&csrf_token={csrf}");
-    let (status, _, cookies) = post_form(app, "/login", &cookies, &body).await;
-    assert_eq!(status, StatusCode::SEE_OTHER, "login failed");
+    let (status, response, cookies) = post_form(app, "/login", &cookies, &body).await;
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "login failed for {code}: got {status}; body: {}",
+        response.chars().take(200).collect::<String>()
+    );
     cookies
 }
 

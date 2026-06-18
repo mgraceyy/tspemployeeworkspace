@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use common::{
     create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, login_as,
-    post_form, post_multipart, test_app, test_pool,
+    post_form, post_multipart, test_app, test_pool, url_encode,
 };
 
 const TEST_PIN: &str = "482915";
@@ -133,17 +133,18 @@ async fn admin_can_save_settings_via_http() {
         ""
     };
     let body = format!(
-        "company_name={company_name}&timezone={}&break_minutes={}&ot_threshold_minutes={}&grace_minutes={}&pay_period={}&pay_period_anchor={}{ot_flag}&journal_salary_expense_account={}&journal_salary_expense_label={}&journal_net_payable_account={}&journal_net_payable_label={}&csrf_token={csrf}",
-        settings.timezone,
+        "company_name={}&timezone={}&break_minutes={}&ot_threshold_minutes={}&grace_minutes={}&pay_period={}&pay_period_anchor={}{ot_flag}&journal_salary_expense_account={}&journal_salary_expense_label={}&journal_net_payable_account={}&journal_net_payable_label={}&csrf_token={csrf}",
+        url_encode(&company_name),
+        url_encode(&settings.timezone),
         settings.break_minutes,
         settings.ot_threshold_minutes,
         settings.grace_minutes,
         pay_period,
         anchor,
-        settings.journal_salary_expense_account,
-        settings.journal_salary_expense_label,
-        settings.journal_net_payable_account,
-        settings.journal_net_payable_label,
+        url_encode(&settings.journal_salary_expense_account),
+        url_encode(&settings.journal_salary_expense_label),
+        url_encode(&settings.journal_net_payable_account),
+        url_encode(&settings.journal_net_payable_label),
     );
     let (status, _, _) = post_form(&mut app, "/admin/settings", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -354,7 +355,7 @@ async fn manager_can_approve_ot_via_http() {
     .await
     .expect("create employee");
 
-    let work_date = Date::from_calendar_date(2026, Month::April, 8).unwrap();
+    let work_date = Date::from_calendar_date(2099, Month::March, 8).unwrap();
     let entry_id: Uuid = sqlx::query_scalar(
         "INSERT INTO time_entries
             (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_reason)
@@ -373,8 +374,12 @@ async fn manager_can_approve_ot_via_http() {
     let csrf = extract_csrf_token(&dashboard_html).expect("csrf");
     let review_path = format!("/manager/ot/{entry_id}/review");
     let body = format!("action=approve&csrf_token={csrf}");
-    let (status, _, _) = post_form(&mut app, &review_path, &cookies, &body).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, response, _) = post_form(&mut app, &review_path, &cookies, &body).await;
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "OT approve failed: {response}"
+    );
 
     let ot_status: OtStatus =
         sqlx::query_scalar("SELECT ot_status::text FROM time_entries WHERE id = $1")
@@ -422,7 +427,11 @@ async fn manager_can_export_team_timesheet_csv_via_http() {
     let cookies = login_as(&mut app, &mgr_code, TEST_PIN).await;
     let path = format!("/manager/team/{}/export.csv", employee.id);
     let (status, body, headers) = get_bytes(&mut app, &path, &cookies).await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "timesheet export failed for manager {mgr_code}"
+    );
     let body_text = String::from_utf8_lossy(&body);
     assert!(body_text.contains(&emp_code));
     let content_type = common::header_value(&headers, "content-type").unwrap_or_default();
@@ -721,7 +730,7 @@ async fn manager_can_reject_ot_via_http() {
     .await
     .expect("create employee");
 
-    let work_date = Date::from_calendar_date(2026, Month::April, 9).unwrap();
+    let work_date = Date::from_calendar_date(2099, Month::March, 9).unwrap();
     let entry_id: Uuid = sqlx::query_scalar(
         "INSERT INTO time_entries
             (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_reason)
@@ -740,8 +749,12 @@ async fn manager_can_reject_ot_via_http() {
     let csrf = extract_csrf_token(&dashboard_html).expect("csrf");
     let review_path = format!("/manager/ot/{entry_id}/review");
     let body = format!("action=reject&note=Not%20needed&csrf_token={csrf}");
-    let (status, _, _) = post_form(&mut app, &review_path, &cookies, &body).await;
-    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (status, response, _) = post_form(&mut app, &review_path, &cookies, &body).await;
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "OT reject failed: {response}"
+    );
 
     let ot_status: OtStatus =
         sqlx::query_scalar("SELECT ot_status::text FROM time_entries WHERE id = $1")
