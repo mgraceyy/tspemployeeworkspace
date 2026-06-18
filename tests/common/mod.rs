@@ -21,9 +21,8 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower::ServiceExt;
 use tower_sessions::{
     cookie::{Key, SameSite},
-    Expiry, SessionManagerLayer,
+    Expiry, MemoryStore, SessionManagerLayer,
 };
-use tower_sessions_sqlx_store::PostgresStore;
 use uuid::Uuid;
 
 const TEST_SESSION_SECRET: &[u8] =
@@ -60,9 +59,6 @@ pub async fn reset_shared_test_state(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("reset rate_limit_events");
-    let _ = sqlx::query(r#"DELETE FROM "tower_sessions"."session""#)
-        .execute(pool)
-        .await;
 }
 
 pub fn url_encode(value: &str) -> String {
@@ -111,17 +107,15 @@ pub async fn test_pool() -> Option<PgPool> {
     }
 
     let pool = PgPoolOptions::new()
-        .max_connections(3)
-        .acquire_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(10))
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(30))
         .connect(&url)
         .await
+        .map_err(|e| eprintln!("test database connection failed: {e}"))
         .ok()?;
     dtr::db::migrate(&pool)
         .await
         .expect("test database migrations");
-    let session_store = PostgresStore::new(pool.clone());
-    session_store.migrate().await.expect("session migrations");
     let _ = TEST_DB_POOL.set(pool);
     let pool = TEST_DB_POOL.get()?;
     reset_shared_test_state(pool).await;
@@ -133,7 +127,9 @@ pub async fn test_app(pool: PgPool) -> Router {
 }
 
 pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
-    let session_store = PostgresStore::new(pool.clone());
+    // In-memory sessions avoid sharing the SQLx pool with handlers (PostgresStore
+    // can exhaust a small pool on CI and deadlock requests).
+    let session_store = MemoryStore::default();
 
     let session_key = Key::try_from(TEST_SESSION_SECRET).expect("session key");
     let session_layer = SessionManagerLayer::new(session_store)
@@ -266,11 +262,13 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         url_encode(code),
         url_encode(pin)
     );
-    let (status, response, cookies) = post_form(app, "/login", &cookies, &body).await;
+    let (status, response, cookies, headers) =
+        post_form_with_headers(app, "/login", &cookies, &body).await;
+    let location = header_value(&headers, "location").unwrap_or_default();
     assert_eq!(
         status,
         StatusCode::SEE_OTHER,
-        "login failed for {code}: got {status}; body: {}",
+        "login failed for {code}: got {status}; location={location}; body: {}",
         response.chars().take(200).collect::<String>()
     );
     cookies
@@ -282,12 +280,23 @@ pub async fn post_form(
     cookies: &str,
     body: &str,
 ) -> (StatusCode, String, String) {
-    post_with_body(
+    let (status, response, cookies, _) = post_form_with_headers(app, path, cookies, body).await;
+    (status, response, cookies)
+}
+
+pub async fn post_form_with_headers(
+    app: &mut Router,
+    path: &str,
+    cookies: &str,
+    body: &str,
+) -> (StatusCode, String, String, HeaderMap) {
+    post_with_body_and_headers(
         app,
         path,
         cookies,
         "application/x-www-form-urlencoded",
         body.as_bytes(),
+        &[],
     )
     .await
 }
@@ -299,7 +308,9 @@ pub async fn post_with_body(
     content_type: &str,
     body: &[u8],
 ) -> (StatusCode, String, String) {
-    post_with_body_and_headers(app, path, cookies, content_type, body, &[]).await
+    let (status, response, cookies, _) =
+        post_with_body_and_headers(app, path, cookies, content_type, body, &[]).await;
+    (status, response, cookies)
 }
 
 pub async fn post_with_body_and_headers(
@@ -309,7 +320,7 @@ pub async fn post_with_body_and_headers(
     content_type: &str,
     body: &[u8],
     extra_headers: &[(&str, &str)],
-) -> (StatusCode, String, String) {
+) -> (StatusCode, String, String, HeaderMap) {
     let mut builder = Request::builder()
         .method("POST")
         .uri(path)
@@ -325,9 +336,10 @@ pub async fn post_with_body_and_headers(
         .await
         .expect("request");
     let status = response.status();
+    let headers = response.headers().clone();
     let set_cookie = merge_cookies(cookies, response.headers().get(header::SET_COOKIE));
     let response_body = response_body(response).await;
-    (status, response_body, set_cookie)
+    (status, response_body, set_cookie, headers)
 }
 
 pub fn build_multipart_body(

@@ -642,7 +642,7 @@ async fn trust_proxy_headers_isolate_rate_limits_by_forwarded_ip() {
     for i in 0..20 {
         let code = format!("FAKE{i:02}");
         let body = format!("employee_code={code}&pin=000000&csrf_token={csrf}");
-        let (status, response, updated_cookies) = post_with_body_and_headers(
+        let (status, response, updated_cookies, _) = post_with_body_and_headers(
             &mut app,
             "/login",
             &cookies,
@@ -657,7 +657,7 @@ async fn trust_proxy_headers_isolate_rate_limits_by_forwarded_ip() {
     }
 
     let body = format!("employee_code=FAKE99&pin=000000&csrf_token={csrf}");
-    let (status, response, _) = post_with_body_and_headers(
+    let (status, response, _, _) = post_with_body_and_headers(
         &mut app,
         "/login",
         "",
