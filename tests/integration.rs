@@ -2037,11 +2037,11 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
     let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
         .await
         .expect("draft with missing effective comp");
-    let lines = list_lines_for_run(&pool, run_id)
-        .await
-        .expect("lines");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
     assert!(
-        !lines.iter().any(|l| l.employee_code == emp_code.to_uppercase()),
+        !lines
+            .iter()
+            .any(|l| l.employee_code == emp_code.to_uppercase()),
         "employee without effective compensation should be skipped"
     );
 
@@ -2323,10 +2323,7 @@ async fn admin_profile_stores_payroll_identity_fields() {
     assert_eq!(profile.bank_account.as_deref(), Some("1234567890"));
     assert_eq!(profile.tin.as_deref(), Some("123-456-789"));
     assert_eq!(profile.sss_number.as_deref(), Some("01-2345678-9"));
-    assert_eq!(
-        profile.philhealth_number.as_deref(),
-        Some("12-345678901-2")
-    );
+    assert_eq!(profile.philhealth_number.as_deref(), Some("12-345678901-2"));
 
     cleanup_employee(&pool, &code).await;
 }
@@ -2364,15 +2361,9 @@ async fn pin_reset_request_approval_forces_pin_change() {
     let request = dtr::services::pin_reset::create_request(&pool, employee.id, Some("Forgot PIN"))
         .await
         .expect("request");
-    dtr::services::pin_reset::approve_request(
-        &pool,
-        request.id,
-        manager.id,
-        false,
-        "739164",
-    )
-    .await
-    .expect("approve");
+    dtr::services::pin_reset::approve_request(&pool, request.id, manager.id, false, "739164")
+        .await
+        .expect("approve");
 
     let row = find_by_id(&pool, employee.id)
         .await
@@ -2419,8 +2410,7 @@ async fn active_employee_list_excludes_archived_by_default() {
         .expect("deactivate");
 
     use dtr::services::onboarding::{
-        count_admin_employee_rows, list_admin_employee_rows, AdminEmployeeQuery,
-        EmployeeListStatus,
+        count_admin_employee_rows, list_admin_employee_rows, AdminEmployeeQuery, EmployeeListStatus,
     };
 
     let active_rows = list_admin_employee_rows(
@@ -2785,11 +2775,9 @@ async fn draft_attendance_becomes_stale_after_no_show_is_marked() {
         .await
         .expect("draft");
     let run = get_run(&pool, run_id).await.expect("run");
-    assert!(
-        !is_draft_attendance_stale(&pool, &run)
-            .await
-            .expect("fresh draft not stale")
-    );
+    assert!(!is_draft_attendance_stale(&pool, &run)
+        .await
+        .expect("fresh draft not stale"));
 
     mark_absence_for_employee(
         &pool,

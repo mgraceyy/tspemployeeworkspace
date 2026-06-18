@@ -37,8 +37,7 @@ pub async fn pin_resets_page(
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
     let is_admin = user.role.is_admin();
-    let requests =
-        list_pending_for_reviewer(&state.pool, user.employee_id, is_admin).await?;
+    let requests = list_pending_for_reviewer(&state.pool, user.employee_id, is_admin).await?;
 
     let rows: Vec<_> = requests
         .iter()

@@ -16,8 +16,8 @@ use crate::services::{
     audit::log_action,
     compensation::{
         format_salary_cents, get_compensation, list_deduction_defaults, list_history,
-        parse_allowance_to_cents, parse_salary_to_cents, save_deduction_defaults,
-        upsert_profile, UpsertProfileInput, DeductionDefaultInput,
+        parse_allowance_to_cents, parse_salary_to_cents, save_deduction_defaults, upsert_profile,
+        DeductionDefaultInput, UpsertProfileInput,
     },
     compensation_import::{apply_import, parse_import_csv, resolve_import_rows, ImportPreview},
     employees::find_by_id,
@@ -84,7 +84,13 @@ pub async fn compensation_page(
                 format_date(p.effective_from),
             )
         } else {
-            ("0.00".to_string(), 132, "0.00".to_string(), "0.00".to_string(), String::new())
+            (
+                "0.00".to_string(),
+                132,
+                "0.00".to_string(),
+                "0.00".to_string(),
+                String::new(),
+            )
         };
 
     let history_rows: Vec<_> = history
@@ -212,10 +218,9 @@ pub async fn save_deduction_defaults_action(
     let mut inputs = Vec::new();
     for dtype in &types {
         let key = format!("default_{}", dtype.code.to_lowercase());
-        let amount_cents =
-            crate::services::payroll::parse_optional_amount_to_cents(
-                form.get(&key).map(|s| s.as_str()).unwrap_or(""),
-            )?;
+        let amount_cents = crate::services::payroll::parse_optional_amount_to_cents(
+            form.get(&key).map(|s| s.as_str()).unwrap_or(""),
+        )?;
         inputs.push(DeductionDefaultInput {
             deduction_type_id: dtype.id,
             amount_cents,

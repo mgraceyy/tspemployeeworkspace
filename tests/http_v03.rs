@@ -19,11 +19,11 @@ use common::{
 const TEST_PIN: &str = "482915";
 
 const MINI_PNG: &[u8] = &[
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
-    0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
-    0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
-    0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-    0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
 ];
 
 fn unique_code(prefix: &str) -> String {
@@ -172,7 +172,10 @@ async fn admin_can_manage_deduction_types_via_http() {
     };
 
     let admin_code = unique_code("DTAD");
-    let type_code = format!("E2E_{}", &Uuid::new_v4().simple().to_string()[..6].to_uppercase());
+    let type_code = format!(
+        "E2E_{}",
+        &Uuid::new_v4().simple().to_string()[..6].to_uppercase()
+    );
     let _admin = create_employee(
         &pool,
         &admin_code,
@@ -263,13 +266,11 @@ async fn employee_can_upload_and_view_profile_photo_via_http() {
     let (status, body, headers) = get_bytes(&mut app, "/me/profile/photo", &cookies).await;
     assert_eq!(status, StatusCode::OK);
     assert!(!body.is_empty());
-    assert!(
-        headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .contains("image/")
-    );
+    assert!(headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .contains("image/"));
 
     cleanup_employee(&pool, &code).await;
 }
@@ -418,13 +419,11 @@ async fn employee_can_download_payslip_pdf_via_http() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(pdf_body.starts_with(b"%PDF"));
-    assert!(
-        headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .contains("application/pdf")
-    );
+    assert!(headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .contains("application/pdf"));
 
     cleanup_payroll_period(&pool, period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;

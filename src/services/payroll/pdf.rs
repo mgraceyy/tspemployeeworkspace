@@ -98,7 +98,10 @@ pub async fn build_payslip_pdf(
         10.0,
         left,
         &mut y,
-        &format!("Base pay: PHP {}", format_salary_cents(detail.base_pay_cents)),
+        &format!(
+            "Base pay: PHP {}",
+            format_salary_cents(detail.base_pay_cents)
+        ),
         line_height,
     );
     if detail.allowance_cents > 0 {
@@ -160,7 +163,15 @@ pub async fn build_payslip_pdf(
         line_height,
     );
     if detail.deductions.is_empty() {
-        write_line(&current_layer, &font, 10.0, left, &mut y, "None", line_height);
+        write_line(
+            &current_layer,
+            &font,
+            10.0,
+            left,
+            &mut y,
+            "None",
+            line_height,
+        );
     } else {
         for d in &detail.deductions {
             write_line(

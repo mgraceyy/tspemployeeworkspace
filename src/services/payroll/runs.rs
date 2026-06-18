@@ -426,19 +426,20 @@ pub fn attendance_snapshot_hash(rows: &[crate::services::reports::PayrollRow]) -
     format!("{:016x}", hasher.finish())
 }
 
-pub async fn is_draft_attendance_stale(
-    pool: &PgPool,
-    run: &PayrollRun,
-) -> AppResult<bool> {
+pub async fn is_draft_attendance_stale(pool: &PgPool, run: &PayrollRun) -> AppResult<bool> {
     if run.status != PayrollRunStatus::Draft {
         return Ok(false);
     }
     let Some(stored) = run.attendance_snapshot_hash.as_deref() else {
         return Ok(false);
     };
-    let current_rows =
-        payroll_summary(pool, run.period_start, run.period_end, &PayrollFilters::default())
-            .await?;
+    let current_rows = payroll_summary(
+        pool,
+        run.period_start,
+        run.period_end,
+        &PayrollFilters::default(),
+    )
+    .await?;
     Ok(stored != attendance_snapshot_hash(&current_rows))
 }
 

@@ -198,8 +198,7 @@ pub async fn reports_page(
     let (_, _, canonical_period_label) =
         current_pay_period(period.end, settings.pay_period, settings.pay_period_anchor);
     let total_pending_ot_minutes: i64 = rows.iter().map(|r| r.pending_ot_minutes).sum();
-    let mut missing_compensation =
-        employees_missing_compensation(&state.pool, period.end).await?;
+    let mut missing_compensation = employees_missing_compensation(&state.pool, period.end).await?;
     missing_compensation.sort();
     let payroll_run = if period_exactly_closed {
         get_active_run_for_period(&state.pool, period.start, period.end).await?

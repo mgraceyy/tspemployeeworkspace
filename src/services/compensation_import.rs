@@ -76,14 +76,14 @@ pub fn parse_import_csv(bytes: &[u8]) -> AppResult<ImportPreview> {
         }
 
         let mut row_error = None;
-        let monthly_salary_cents =
-            match parse_salary_to_cents(record.get(idx_salary).unwrap_or("")) {
-                Ok(v) => v,
-                Err(e) => {
-                    row_error = Some(e.to_string());
-                    0
-                }
-            };
+        let monthly_salary_cents = match parse_salary_to_cents(record.get(idx_salary).unwrap_or(""))
+        {
+            Ok(v) => v,
+            Err(e) => {
+                row_error = Some(e.to_string());
+                0
+            }
+        };
         let ot_rate_percent = idx_ot
             .and_then(|i| record.get(i))
             .map(str::trim)
@@ -105,13 +105,16 @@ pub fn parse_import_csv(bytes: &[u8]) -> AppResult<ImportPreview> {
             .and_then(|i| record.get(i))
             .map(str::trim)
             .unwrap_or("");
-        let meal_allowance_cents = parse_allowance_to_cents(meal_allowance_cents).unwrap_or_else(
-            |e| {
+        let meal_allowance_cents =
+            parse_allowance_to_cents(meal_allowance_cents).unwrap_or_else(|e| {
                 row_error.get_or_insert_with(|| e.to_string());
                 0
-            },
-        );
-        let effective_from = match record.get(idx_effective).map(str::trim).filter(|s| !s.is_empty()) {
+            });
+        let effective_from = match record
+            .get(idx_effective)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             Some(s) => match parse_date(s) {
                 Ok(d) => Some(d),
                 Err(e) => {

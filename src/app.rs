@@ -204,8 +204,7 @@ where
         )
         .route(
             "/admin/compensation/import",
-            get(admin::compensation_import_page)
-                .post(admin::compensation_import_preview_action),
+            get(admin::compensation_import_page).post(admin::compensation_import_preview_action),
         )
         .route(
             "/admin/compensation/import/apply",

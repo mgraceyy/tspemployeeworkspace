@@ -114,11 +114,9 @@ pub async fn count_pending_for_reviewer(
     is_admin: bool,
 ) -> AppResult<i64> {
     let count: i64 = if is_admin {
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM pin_reset_requests WHERE status = 'pending'",
-        )
-        .fetch_one(pool)
-        .await
+        sqlx::query_scalar("SELECT COUNT(*) FROM pin_reset_requests WHERE status = 'pending'")
+            .fetch_one(pool)
+            .await
     } else {
         sqlx::query_scalar(
             "SELECT COUNT(*)
@@ -159,7 +157,10 @@ pub async fn approve_request(
     validate_pin(temp_pin)?;
     let pin_hash = hash_pin(temp_pin)?;
 
-    let mut tx = pool.begin().await.map_err(|e| AppError::Internal(e.into()))?;
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
 
     sqlx::query(
         "UPDATE employees
@@ -183,7 +184,9 @@ pub async fn approve_request(
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
 
-    tx.commit().await.map_err(|e| AppError::Internal(e.into()))?;
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
     Ok(())
 }
 
@@ -216,7 +219,11 @@ pub async fn deny_request(
     Ok(())
 }
 
-pub async fn cancel_own_request(pool: &PgPool, employee_id: Uuid, request_id: Uuid) -> AppResult<()> {
+pub async fn cancel_own_request(
+    pool: &PgPool,
+    employee_id: Uuid,
+    request_id: Uuid,
+) -> AppResult<()> {
     let updated = sqlx::query(
         "UPDATE pin_reset_requests
          SET status = 'cancelled', reviewed_at = now()

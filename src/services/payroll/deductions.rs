@@ -97,13 +97,12 @@ pub async fn apply_deduction_defaults_for_run(pool: &PgPool, run_id: Uuid) -> Ap
     .map_err(|e| AppError::Internal(e.into()))?;
 
     for (line_id, employee_id) in lines {
-        let existing: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM payroll_deductions WHERE line_id = $1",
-        )
-        .bind(line_id)
-        .fetch_one(pool)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
+        let existing: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM payroll_deductions WHERE line_id = $1")
+                .bind(line_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| AppError::Internal(e.into()))?;
         if existing > 0 {
             continue;
         }
@@ -123,11 +122,12 @@ pub async fn apply_deduction_defaults_for_run(pool: &PgPool, run_id: Uuid) -> Ap
             continue;
         }
 
-        let gross: i64 = sqlx::query_scalar("SELECT gross_pay_cents FROM payroll_lines WHERE id = $1")
-            .bind(line_id)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| AppError::Internal(e.into()))?;
+        let gross: i64 =
+            sqlx::query_scalar("SELECT gross_pay_cents FROM payroll_lines WHERE id = $1")
+                .bind(line_id)
+                .fetch_one(pool)
+                .await
+                .map_err(|e| AppError::Internal(e.into()))?;
         let total: i64 = defaults.iter().map(|(_, amount)| amount).sum();
         if total > gross {
             continue;

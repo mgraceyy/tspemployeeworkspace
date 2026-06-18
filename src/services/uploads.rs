@@ -190,7 +190,8 @@ pub async fn store_profile_photo(
     bytes: &[u8],
     max_bytes: usize,
 ) -> AppResult<StoredUpload> {
-    let (_sanitized, ext) = validate_profile_photo(original_name, Some(mime_type), bytes, max_bytes)?;
+    let (_sanitized, ext) =
+        validate_profile_photo(original_name, Some(mime_type), bytes, max_bytes)?;
     let relative = format!("photos/{employee_id}.{ext}");
     let absolute = upload_dir.join(&relative);
 

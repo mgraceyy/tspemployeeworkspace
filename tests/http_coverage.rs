@@ -1273,8 +1273,8 @@ async fn admin_can_finalize_payroll_run_via_http() {
                 id, 1_000_000, effective, admin.id,
             ),
         )
-            .await
-            .expect("upsert comp");
+        .await
+        .expect("upsert comp");
     }
 
     dtr::services::payroll_controls::close_pay_period(

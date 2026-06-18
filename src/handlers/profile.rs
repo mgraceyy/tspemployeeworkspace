@@ -264,12 +264,7 @@ pub async fn request_pin_reset(
     AuthUser(user): AuthUser,
     Form(form): Form<PinResetReasonForm>,
 ) -> AppResult<Redirect> {
-    create_request(
-        &state.pool,
-        user.employee_id,
-        form.reason.as_deref(),
-    )
-    .await?;
+    create_request(&state.pool, user.employee_id, form.reason.as_deref()).await?;
 
     log_action(
         &state.pool,

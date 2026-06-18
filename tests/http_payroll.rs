@@ -571,13 +571,11 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(pdf_body.starts_with(b"%PDF"));
-    assert!(
-        headers
-            .get("content-type")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .contains("application/pdf")
-    );
+    assert!(headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .contains("application/pdf"));
 
     cleanup_payroll_period(&pool, period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;

@@ -185,7 +185,10 @@ pub async fn export_my_payslip_pdf(
     let disposition = format!("attachment; filename=\"{filename}\"");
     Ok((
         [
-            (axum::http::header::CONTENT_TYPE, "application/pdf".to_string()),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/pdf".to_string(),
+            ),
             (axum::http::header::CONTENT_DISPOSITION, disposition),
         ],
         pdf_bytes,
@@ -208,7 +211,10 @@ pub async fn export_admin_payslip_pdf(
     let disposition = format!("attachment; filename=\"{filename}\"");
     Ok((
         [
-            (axum::http::header::CONTENT_TYPE, "application/pdf".to_string()),
+            (
+                axum::http::header::CONTENT_TYPE,
+                "application/pdf".to_string(),
+            ),
             (axum::http::header::CONTENT_DISPOSITION, disposition),
         ],
         pdf_bytes,
