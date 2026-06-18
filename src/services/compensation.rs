@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlx::PgPool;
 use time::Date;
 use uuid::Uuid;
@@ -36,6 +38,59 @@ pub async fn get_compensation(
     .fetch_optional(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))
+}
+
+pub async fn get_compensation_map_as_of(
+    pool: &PgPool,
+    employee_ids: &[Uuid],
+    as_of: Date,
+) -> AppResult<HashMap<Uuid, CompensationProfile>> {
+    if employee_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let current = sqlx::query_as::<_, CompensationProfile>(
+        "SELECT employee_id, monthly_salary_cents, ot_rate_percent, effective_from
+         FROM compensation_profiles
+         WHERE employee_id = ANY($1)",
+    )
+    .bind(employee_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    let mut map = HashMap::with_capacity(employee_ids.len());
+    let mut need_history = Vec::new();
+    for id in employee_ids {
+        if let Some(profile) = current.iter().find(|p| p.employee_id == *id) {
+            if profile.effective_from <= as_of {
+                map.insert(*id, profile.clone());
+                continue;
+            }
+        }
+        need_history.push(*id);
+    }
+
+    if !need_history.is_empty() {
+        let history = sqlx::query_as::<_, CompensationProfile>(
+            "SELECT DISTINCT ON (employee_id) employee_id, monthly_salary_cents, ot_rate_percent, effective_from
+             FROM compensation_history
+             WHERE employee_id = ANY($1)
+               AND effective_from <= $2
+               AND (effective_to IS NULL OR effective_to >= $2)
+             ORDER BY employee_id, effective_from DESC",
+        )
+        .bind(&need_history)
+        .bind(as_of)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+        for profile in history {
+            map.insert(profile.employee_id, profile);
+        }
+    }
+
+    Ok(map)
 }
 
 pub async fn get_compensation_as_of(

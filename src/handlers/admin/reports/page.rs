@@ -142,16 +142,34 @@ pub async fn reports_page(
         is_period_exactly_closed(&state.pool, period.start, period.end).await?;
     let overlapping_closed =
         list_overlapping_closed_periods(&state.pool, period.start, period.end).await?;
-    let overlapping_closed_rows: Vec<_> = overlapping_closed
-        .iter()
-        .map(|row| {
-            context! {
-                start_date => format_date(row.period_start),
-                end_date => format_date(row.period_end),
-                note => row.note.clone().unwrap_or_default(),
+    let mut overlapping_closed_rows = Vec::new();
+    for row in &overlapping_closed {
+        let payroll_run =
+            get_active_run_for_period(&state.pool, row.period_start, row.period_end).await?;
+        let (reopen_blocked, reopen_blocked_reason, payroll_run_url) = match payroll_run {
+            Some(run) => {
+                let reason = if run.status == PayrollRunStatus::Draft {
+                    "Void the draft payroll run before reopening this period."
+                } else {
+                    "Payroll is finalized for this period — reopen is blocked."
+                };
+                (
+                    true,
+                    reason.to_string(),
+                    Some(format!("/admin/payroll/{}", run.id)),
+                )
             }
-        })
-        .collect();
+            None => (false, String::new(), None),
+        };
+        overlapping_closed_rows.push(context! {
+            start_date => format_date(row.period_start),
+            end_date => format_date(row.period_end),
+            note => row.note.clone().unwrap_or_default(),
+            reopen_blocked => reopen_blocked,
+            reopen_blocked_reason => reopen_blocked_reason,
+            payroll_run_url => payroll_run_url.unwrap_or_default(),
+        });
+    }
 
     let employee_options: Vec<_> = employees
         .iter()

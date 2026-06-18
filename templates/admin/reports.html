@@ -122,13 +122,22 @@
       <span class="closed-period-label">
         <strong>{{ period.start_date }} – {{ period.end_date }}</strong>
         {% if period.note %}<span class="muted"> — {{ period.note }}</span>{% endif %}
+        {% if period.reopen_blocked %}
+        <span class="muted"> — {{ period.reopen_blocked_reason }}
+          {% if period.payroll_run_url %}<a href="{{ period.payroll_run_url }}">View payroll run</a>{% endif %}
+        </span>
+        {% endif %}
       </span>
+      {% if period.reopen_blocked %}
+      <button type="button" class="btn btn-small btn-danger" disabled>Reopen</button>
+      {% else %}
       <form method="post" action="/admin/reports/reopen-period" class="inline-form">
         {% include "partials/csrf_field.html" %}
         <input type="hidden" name="start" value="{{ period.start_date }}">
         <input type="hidden" name="end" value="{{ period.end_date }}">
         <button type="submit" class="btn btn-small btn-danger">Reopen</button>
       </form>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

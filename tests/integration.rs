@@ -8,7 +8,9 @@ use dtr::models::{OtStatus, UserRole};
 use dtr::services::attendance::mark_absence_for_employee;
 use dtr::services::audit::{list_audit_logs, log_action, AuditLogQuery};
 use dtr::services::clock::{clock_in, clock_out, ot_status_for_minutes};
-use dtr::services::compensation::{get_compensation, upsert_profile};
+use dtr::services::compensation::{
+    get_compensation, get_compensation_as_of, get_compensation_map_as_of, upsert_profile,
+};
 use dtr::services::corrections::{
     create_corrected_entry, list_correction_logs, CorrectionLogQuery, CorrectionSubmission,
 };
@@ -24,6 +26,7 @@ use dtr::services::onboarding::{
     bulk_assign_department, list_admin_employee_rows, profile_completeness_pct, AdminEmployeeQuery,
 };
 use dtr::services::ot::review_overtime;
+use dtr::services::payroll::base_pay_cents_for_period;
 use dtr::services::payroll::{gross_pay_cents, GrossPayInput};
 use dtr::services::profile::{get_profile, update_admin, update_self_service, AdminProfileInput};
 use dtr::services::reports::{payroll_summary, PayrollFilters};
@@ -2028,4 +2031,211 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
         .await;
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn get_compensation_as_of_uses_history_when_current_is_future_dated() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("CMHS");
+    let emp_code = unique_code("CMHE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Comp History Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Comp History Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let as_of = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+    let old_effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+    let new_effective = Date::from_calendar_date(2026, Month::July, 1).unwrap();
+
+    upsert_profile(&pool, employee.id, 2_000_000, 132, old_effective, admin.id)
+        .await
+        .expect("initial comp");
+    upsert_profile(&pool, employee.id, 3_000_000, 150, new_effective, admin.id)
+        .await
+        .expect("raise comp");
+
+    let historical = get_compensation_as_of(&pool, employee.id, as_of)
+        .await
+        .expect("as-of")
+        .expect("profile");
+    assert_eq!(historical.monthly_salary_cents, 2_000_000);
+    assert_eq!(historical.ot_rate_percent, 132);
+
+    let map = get_compensation_map_as_of(&pool, &[employee.id], as_of)
+        .await
+        .expect("map");
+    assert_eq!(
+        map.get(&employee.id).map(|p| p.monthly_salary_cents),
+        Some(2_000_000)
+    );
+
+    let _ = sqlx::query("DELETE FROM compensation_history WHERE employee_id = $1")
+        .bind(employee.id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM compensation_profiles WHERE employee_id = $1")
+        .bind(employee.id)
+        .execute(&pool)
+        .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+async fn with_pay_period_setting<F>(pool: &PgPool, pay_period: PayPeriodType, test: F)
+where
+    F: std::future::Future<Output = ()>,
+{
+    let original = get_settings(pool).await.expect("settings");
+    let update = SettingsUpdate {
+        company_name: &original.company_name,
+        timezone: &original.timezone,
+        break_minutes: original.break_minutes,
+        ot_threshold_minutes: original.ot_threshold_minutes,
+        grace_minutes: original.grace_minutes,
+        pay_period,
+        pay_period_anchor: original.pay_period_anchor,
+        ot_requires_approval: original.ot_requires_approval,
+    };
+    update_settings(pool, &update)
+        .await
+        .expect("set pay period");
+    test.await;
+    let restore = SettingsUpdate {
+        company_name: &original.company_name,
+        timezone: &original.timezone,
+        break_minutes: original.break_minutes,
+        ot_threshold_minutes: original.ot_threshold_minutes,
+        grace_minutes: original.grace_minutes,
+        pay_period: original.pay_period,
+        pay_period_anchor: original.pay_period_anchor,
+        ot_requires_approval: original.ot_requires_approval,
+    };
+    update_settings(pool, &restore)
+        .await
+        .expect("restore pay period");
+}
+
+#[tokio::test]
+async fn payroll_run_honors_weekly_pay_period_base_pay() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    with_pay_period_setting(&pool, PayPeriodType::Weekly, async {
+        let admin_code = unique_code("PYWK");
+        let admin = create_employee(
+            &pool,
+            &admin_code,
+            "Weekly Payroll Admin",
+            "482915",
+            UserRole::Admin,
+            None,
+        )
+        .await
+        .expect("admin");
+
+        let settings = get_settings(&pool).await.expect("settings");
+        let (period_start, period_end) = isolated_payroll_period(&settings);
+        let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+        ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+        cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+
+        close_pay_period(
+            &pool,
+            period_start,
+            period_end,
+            admin.id,
+            Some("weekly payroll test"),
+        )
+        .await
+        .expect("close");
+
+        let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+            .await
+            .expect("create draft");
+        let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+        assert!(!lines.is_empty());
+        let expected_base = base_pay_cents_for_period(1_000_000, PayPeriodType::Weekly);
+        assert!(lines
+            .iter()
+            .all(|line| line.base_pay_cents == expected_base));
+
+        void_draft_run(&pool, run_id).await.expect("void");
+        cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+        cleanup_employee(&pool, &admin_code).await;
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn payroll_run_honors_biweekly_pay_period_base_pay() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    with_pay_period_setting(&pool, PayPeriodType::Biweekly, async {
+        let admin_code = unique_code("PYBW");
+        let admin = create_employee(
+            &pool,
+            &admin_code,
+            "Biweekly Payroll Admin",
+            "482915",
+            UserRole::Admin,
+            None,
+        )
+        .await
+        .expect("admin");
+
+        let settings = get_settings(&pool).await.expect("settings");
+        let (period_start, period_end) = isolated_payroll_period(&settings);
+        let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+        ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+        cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+
+        close_pay_period(
+            &pool,
+            period_start,
+            period_end,
+            admin.id,
+            Some("biweekly payroll test"),
+        )
+        .await
+        .expect("close");
+
+        let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+            .await
+            .expect("create draft");
+        let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+        let expected_base = base_pay_cents_for_period(1_000_000, PayPeriodType::Biweekly);
+        assert!(lines
+            .iter()
+            .all(|line| line.base_pay_cents == expected_base));
+
+        void_draft_run(&pool, run_id).await.expect("void");
+        cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+        cleanup_employee(&pool, &admin_code).await;
+    })
+    .await;
 }

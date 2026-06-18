@@ -101,7 +101,7 @@ Time entries + approvals
 
 **Goal:** Preview and finalize gross pay for a **closed** pay period.
 
-### Schema (planned)
+### Schema (implemented — `migrations/019_payroll_runs.sql`, `020_payroll_deductions.sql`, `021_payroll_integrity.sql`)
 
 ```sql
 CREATE TYPE payroll_run_status AS ENUM ('draft', 'finalized', 'voided');
@@ -146,7 +146,7 @@ CREATE TABLE payroll_lines (
 ### Guards
 
 - Period must be closed and match a full configured pay period (semimonthly, monthly, etc.)
-- Every active employee needs compensation profile
+- Every active employee needs compensation effective on `period_end` (current profile or history row)
 - Pending OT blocks finalize (excluded from gross until approved)
 - Period reopen blocked while a draft or finalized payroll run exists
 - Draft creation is transactional; one active run per period (DB-enforced)
@@ -184,6 +184,17 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 
 ---
 
+## Salary and hire-date policy (locked)
+
+| Topic | Policy |
+|-------|--------|
+| Pay type | All employees are **monthly**; weekly/biweekly/semimonthly settings only change the **period factor** applied to monthly salary |
+| New hires (`date_hired`) | **No proration** — active employees receive the full period base for the pay period, regardless of hire date or days worked in the range |
+| Mid-period salary change | Rate effective on **`period_end`** only — no within-period proration; prior rates live in `compensation_history` |
+| Draft run lines | **Snapshot at creation** — gross pay does not auto-refresh; void the draft, reopen the period in Reports, fix data, close again, then create a new run |
+
+---
+
 ## Phase 6 — Accounting handoff
 
 - Bank upload CSV (needs `bank_account` on profile)
@@ -200,6 +211,8 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | `/admin/payroll` | ✅ Done |
 | `/admin/payroll/{id}` | ✅ Done |
 | `/admin/payroll/{id}/finalize` | ✅ Done |
+| `/admin/payroll/{run_id}/export.csv` | ✅ Done |
+| `/admin/payroll/{run_id}/void` | ✅ Done |
 | `/admin/payroll/{run_id}/lines/{line_id}` | ✅ Done |
 | `/me/payslips` | ✅ Done |
 | `/me/payslips/{line_id}` | ✅ Done |

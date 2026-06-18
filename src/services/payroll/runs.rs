@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{CompanySettings, PayrollLineWithEmployee, PayrollRun, PayrollRunStatus};
-use crate::services::compensation::get_compensation_as_of;
+use crate::services::compensation::get_compensation_map_as_of;
 use crate::services::payroll_controls::is_period_exactly_closed;
 use crate::services::reports::{assert_canonical_pay_period, payroll_summary, PayrollFilters};
 
@@ -201,8 +201,25 @@ pub async fn create_draft_run(
     .await
     .map_err(map_payroll_run_conflict)?;
 
+    let employee_codes: Vec<String> = summary_rows
+        .iter()
+        .map(|row| row.employee_code.clone())
+        .collect();
+    let employee_map = active_employee_ids_by_code(&mut tx, &employee_codes).await?;
+    let employee_ids: Vec<Uuid> = employee_map.values().copied().collect();
+    let compensation_map = get_compensation_map_as_of(pool, &employee_ids, period_end).await?;
+
     for row in &summary_rows {
-        insert_line_for_summary(&mut tx, pool, run_id, row, period_end, settings).await?;
+        insert_line_for_summary(
+            &mut tx,
+            run_id,
+            row,
+            period_end,
+            settings,
+            &employee_map,
+            &compensation_map,
+        )
+        .await?;
     }
 
     tx.commit()
@@ -211,34 +228,48 @@ pub async fn create_draft_run(
     Ok(run_id)
 }
 
+async fn active_employee_ids_by_code(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_codes: &[String],
+) -> AppResult<std::collections::HashMap<String, Uuid>> {
+    if employee_codes.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let rows: Vec<(String, Uuid)> = sqlx::query_as(
+        "SELECT employee_code, id FROM employees
+         WHERE employee_code = ANY($1) AND is_active = TRUE",
+    )
+    .bind(employee_codes)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(rows.into_iter().collect())
+}
+
 async fn insert_line_for_summary(
     tx: &mut Transaction<'_, Postgres>,
-    pool: &PgPool,
     run_id: Uuid,
     row: &crate::services::reports::PayrollRow,
     period_end: Date,
     settings: &CompanySettings,
+    employee_map: &std::collections::HashMap<String, Uuid>,
+    compensation_map: &std::collections::HashMap<Uuid, crate::models::CompensationProfile>,
 ) -> AppResult<()> {
-    let employee_id: Uuid = sqlx::query_scalar(
-        "SELECT id FROM employees WHERE employee_code = $1 AND is_active = TRUE",
-    )
-    .bind(&row.employee_code)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?
-    .ok_or_else(|| {
-        AppError::bad_request(format!("Active employee not found: {}", row.employee_code))
-    })?;
-
-    let comp = get_compensation_as_of(pool, employee_id, period_end)
-        .await?
+    let employee_id = employee_map
+        .get(&row.employee_code)
+        .copied()
         .ok_or_else(|| {
-            AppError::bad_request(format!(
-                "Missing compensation effective on {} for {}",
-                crate::services::timezone::format_date(period_end),
-                row.employee_code
-            ))
+            AppError::bad_request(format!("Active employee not found: {}", row.employee_code))
         })?;
+
+    let comp = compensation_map.get(&employee_id).ok_or_else(|| {
+        AppError::bad_request(format!(
+            "Missing compensation effective on {} for {}",
+            crate::services::timezone::format_date(period_end),
+            row.employee_code
+        ))
+    })?;
 
     let base = base_pay_cents_for_period(comp.monthly_salary_cents, settings.pay_period);
     let no_show_ded = no_show_deduction_cents(comp.monthly_salary_cents, row.no_show_days);

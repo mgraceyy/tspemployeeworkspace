@@ -5,7 +5,7 @@
 Employee timekeeping (Daily Time Record) and lightweight employee workspace for **TalaSora Prime** — built with Rust, Axum, PostgreSQL, and MiniJinja.
 
 > **Repository:** [github.com/mgraceyy/tspemployeeworkspace](https://github.com/mgraceyy/tspemployeeworkspace)  
-> **License:** MIT · **Version:** v0.1.0
+> **License:** MIT · **Version:** v0.2.0
 
 ## Features
 
@@ -169,8 +169,7 @@ docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
 
 ## Payroll roadmap
 
-v0.1.0 covers **time & attendance reporting** (hours, OT, leave counts, period close, CSV/Excel export).  
-**Compensation**, **payroll runs**, **manual deductions**, and **payslips** (`/me/payslips`) are available — see [docs/PAYROLL.md](docs/PAYROLL.md).
+**v0.2.0** adds compensation profiles, payroll runs (draft → deductions → finalize), payslips (`/me/payslips`), and finalized payroll CSV export on top of **v0.1.0** time & attendance reporting (hours, OT, leave counts, period close, CSV/Excel export). See [docs/PAYROLL.md](docs/PAYROLL.md).
 
 **Ops (locked):** Admin runs payroll in-app; bank/accounting export and 13th-month pay stay outside the app for now.
 
@@ -325,7 +324,7 @@ The audit/deny steps ignore [RUSTSEC-2023-0071](https://rustsec.org/advisories/R
 
 ## Tests
 
-The suite has **145+ Rust tests** across unit, integration, and HTTP layers.
+The suite has **161+ Rust tests** across unit, integration, and HTTP layers.
 
 Unit tests (no database required):
 
@@ -339,13 +338,14 @@ Integration tests use `DATABASE_URL` and skip automatically when Postgres is una
 cargo test --test integration
 ```
 
-HTTP integration tests (Axum router, no TCP bind) live in `tests/http.rs`, `http_extra.rs`, `http_workflows.rs`, and `http_coverage.rs`:
+HTTP integration tests (Axum router, no TCP bind) live in `tests/http.rs`, `http_extra.rs`, `http_workflows.rs`, `http_coverage.rs`, and `http_payroll.rs`:
 
 ```bash
 cargo test --test http
 cargo test --test http_extra
 cargo test --test http_workflows
 cargo test --test http_coverage
+cargo test --test http_payroll
 ```
 
 Run all tests with a local database:
@@ -376,7 +376,7 @@ npx playwright install chromium
 E2E_BASE_URL=http://127.0.0.1:8080 npm test
 ```
 
-E2E specs cover login, health/metrics, auth flows, manager actions, requirements upload, admin employee creation, authorization boundaries, and closed pay-period blocking.
+E2E specs cover login, health/metrics, auth flows, manager actions, requirements upload, admin employee creation, authorization boundaries, closed pay-period blocking, and the payroll happy path (close period → draft → finalize → payslips).
 
 ## Contributing
 
@@ -394,8 +394,8 @@ git config user.email "221118937+mgraceyy@users.noreply.github.com"
 Tag production baselines after CI is green:
 
 ```bash
-git tag -a v0.1.0 -m "First production baseline: DTR + workspace, 127 tests, full CI"
-git push origin v0.1.0
+git tag -a v0.2.0 -m "Payroll phases 1-4: compensation, runs, deductions, payslips, export"
+git push origin v0.2.0
 ```
 
 ### Suggested GitHub repository settings

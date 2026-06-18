@@ -142,6 +142,22 @@ mod tests {
     }
 
     #[test]
+    fn weekly_base_uses_twelve_over_fifty_two_factor() {
+        assert_eq!(
+            base_pay_cents_for_period(SALARY, PayPeriodType::Weekly),
+            600_000
+        );
+    }
+
+    #[test]
+    fn biweekly_base_is_half_monthly() {
+        assert_eq!(
+            base_pay_cents_for_period(SALARY, PayPeriodType::Biweekly),
+            1_300_000
+        );
+    }
+
+    #[test]
     fn leave_days_do_not_affect_gross() {
         let with_leave = GrossPayInput {
             monthly_salary_cents: SALARY,
