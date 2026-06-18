@@ -543,6 +543,15 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
     assert_eq!(status, StatusCode::OK);
     assert!(bank_csv.contains("9876543210"));
 
+    let (status, journal_csv, _) = get(
+        &mut app,
+        &format!("/admin/payroll/{run_id}/export-journal.csv"),
+        &cookies,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(journal_csv.contains("Salaries expense"));
+
     let line_id: Uuid = sqlx::query_scalar(
         "SELECT l.id FROM payroll_lines l
          JOIN employees e ON e.id = l.employee_id

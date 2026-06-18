@@ -44,7 +44,7 @@ use dtr::services::leave::{create_request, review_request};
 use dtr::services::payroll::{
     build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, build_payslip_pdf,
     create_draft_run, finalize_run, get_line_for_run, get_payslip_for_employee, get_run,
-    list_deduction_types, list_lines_for_run,
+    is_draft_attendance_stale, list_deduction_types, list_lines_for_run,
     list_payslips_for_employee, save_line_deductions, void_draft_run, DeductionInput,
 };
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
@@ -2729,6 +2729,87 @@ async fn finalized_payroll_exports_include_allowances_and_bank_data() {
         .await
         .expect("pdf");
     assert!(pdf.starts_with(b"%PDF"));
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn draft_attendance_becomes_stale_after_no_show_is_marked() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("STAD");
+    let emp_code = unique_code("STEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Stale Attendance Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Stale Attendance Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("stale attendance test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let run = get_run(&pool, run_id).await.expect("run");
+    assert!(
+        !is_draft_attendance_stale(&pool, &run)
+            .await
+            .expect("fresh draft not stale")
+    );
+
+    mark_absence_for_employee(
+        &pool,
+        employee.id,
+        period_start,
+        AttendanceStatus::NoShow,
+        admin.id,
+        true,
+        admin.id,
+    )
+    .await
+    .expect("mark no-show");
+
+    let run = get_run(&pool, run_id).await.expect("run");
+    assert!(
+        is_draft_attendance_stale(&pool, &run)
+            .await
+            .expect("stale after no-show"),
+        "draft should be stale after attendance changed"
+    );
 
     cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;

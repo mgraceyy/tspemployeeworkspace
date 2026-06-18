@@ -248,6 +248,7 @@ pub async fn post_with_body_and_headers(
 pub fn build_multipart_body(
     boundary: &str,
     csrf_token: &str,
+    file_field: &str,
     file_name: Option<(&str, &[u8], &str)>,
 ) -> Vec<u8> {
     let mut body = Vec::new();
@@ -259,8 +260,10 @@ pub fn build_multipart_body(
     if let Some((name, bytes, mime)) = file_name {
         body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
         body.extend_from_slice(
-            format!("Content-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n")
-                .as_bytes(),
+            format!(
+                "Content-Disposition: form-data; name=\"{file_field}\"; filename=\"{name}\"\r\n"
+            )
+            .as_bytes(),
         );
         body.extend_from_slice(format!("Content-Type: {mime}\r\n\r\n").as_bytes());
         body.extend_from_slice(bytes);
@@ -279,7 +282,19 @@ pub async fn post_multipart(
     csrf_token: &str,
     file_name: Option<(&str, &[u8], &str)>,
 ) -> (StatusCode, String, String) {
-    let body = build_multipart_body(boundary, csrf_token, file_name);
+    post_multipart_field(app, path, cookies, boundary, csrf_token, "file", file_name).await
+}
+
+pub async fn post_multipart_field(
+    app: &mut Router,
+    path: &str,
+    cookies: &str,
+    boundary: &str,
+    csrf_token: &str,
+    file_field: &str,
+    file_name: Option<(&str, &[u8], &str)>,
+) -> (StatusCode, String, String) {
+    let body = build_multipart_body(boundary, csrf_token, file_field, file_name);
     let content_type = format!("multipart/form-data; boundary={boundary}");
     post_with_body(app, path, cookies, &content_type, &body).await
 }
