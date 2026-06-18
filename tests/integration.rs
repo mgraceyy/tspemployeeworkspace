@@ -9,7 +9,8 @@ use dtr::services::attendance::mark_absence_for_employee;
 use dtr::services::audit::{list_audit_logs, log_action, AuditLogQuery};
 use dtr::services::clock::{clock_in, clock_out, ot_status_for_minutes};
 use dtr::services::compensation::{
-    get_compensation, get_compensation_as_of, get_compensation_map_as_of, upsert_profile,
+    get_compensation, get_compensation_as_of, get_compensation_map_as_of, save_deduction_defaults,
+    upsert_profile, DeductionDefaultInput, UpsertProfileInput,
 };
 use dtr::services::corrections::{
     create_corrected_entry, list_correction_logs, CorrectionLogQuery, CorrectionSubmission,
@@ -41,9 +42,10 @@ use dtr::models::LeaveRequestType;
 use dtr::models::PayrollRunStatus;
 use dtr::services::leave::{create_request, review_request};
 use dtr::services::payroll::{
+    build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, build_payslip_pdf,
     create_draft_run, finalize_run, get_line_for_run, get_payslip_for_employee, get_run,
-    list_deduction_types, list_lines_for_run, list_payslips_for_employee, save_line_deductions,
-    void_draft_run, DeductionInput,
+    list_deduction_types, list_lines_for_run,
+    list_payslips_for_employee, save_line_deductions, void_draft_run, DeductionInput,
 };
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
 use dtr::services::reports::current_pay_period;
@@ -1468,9 +1470,12 @@ async fn compensation_profile_persists_and_gross_pay_follows_policy() {
     .expect("employee");
 
     let effective = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
-    upsert_profile(&pool, employee.id, 2_600_000, 132, 0, 0, effective, admin.id)
-        .await
-        .expect("upsert compensation");
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput::new(employee.id, 2_600_000, effective, admin.id),
+    )
+    .await
+    .expect("upsert compensation");
 
     let profile = get_compensation(&pool, employee.id)
         .await
@@ -1546,7 +1551,11 @@ async fn ensure_all_active_have_compensation(pool: &PgPool, admin_id: Uuid, effe
     .await
     .unwrap_or_default();
     for id in ids {
-        let _ = upsert_profile(pool, id, 1_000_000, 132, 0, 0, effective, admin_id).await;
+        let _ = upsert_profile(
+            pool,
+            &UpsertProfileInput::new(id, 1_000_000, effective, admin_id),
+        )
+        .await;
     }
 }
 
@@ -2003,13 +2012,7 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
 
     upsert_profile(
         &pool,
-        employee.id,
-        1_000_000,
-        132,
-        0,
-        0,
-        future_effective,
-        admin.id,
+        &UpsertProfileInput::new(employee.id, 1_000_000, future_effective, admin.id),
     )
     .await
     .expect("future compensation");
@@ -2085,12 +2088,26 @@ async fn get_compensation_as_of_uses_history_when_current_is_future_dated() {
     let old_effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
     let new_effective = Date::from_calendar_date(2026, Month::July, 1).unwrap();
 
-    upsert_profile(&pool, employee.id, 2_000_000, 132, 0, 0, old_effective, admin.id)
-        .await
-        .expect("initial comp");
-    upsert_profile(&pool, employee.id, 3_000_000, 150, 0, 0, new_effective, admin.id)
-        .await
-        .expect("raise comp");
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput::new(employee.id, 2_000_000, old_effective, admin.id),
+    )
+    .await
+    .expect("initial comp");
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput {
+            employee_id: employee.id,
+            monthly_salary_cents: 3_000_000,
+            ot_rate_percent: 150,
+            transport_allowance_cents: 0,
+            meal_allowance_cents: 0,
+            effective_from: new_effective,
+            updated_by: admin.id,
+        },
+    )
+    .await
+    .expect("raise comp");
 
     let historical = get_compensation_as_of(&pool, employee.id, as_of)
         .await
@@ -2441,4 +2458,279 @@ async fn active_employee_list_excludes_archived_by_default() {
 
     cleanup_employee(&pool, &active_code).await;
     cleanup_employee(&pool, &archived_code).await;
+}
+
+#[tokio::test]
+async fn payroll_line_includes_semimonthly_allowances() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("ALAD");
+    let emp_code = unique_code("ALEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Allowance Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Allowance Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput {
+            employee_id: employee.id,
+            monthly_salary_cents: 2_600_000,
+            ot_rate_percent: 132,
+            transport_allowance_cents: 100_000,
+            meal_allowance_cents: 50_000,
+            effective_from: effective,
+            updated_by: admin.id,
+        },
+    )
+    .await
+    .expect("allowance comp");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("allowance test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("line");
+    assert_eq!(line.allowance_cents, 75_000);
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn deduction_defaults_apply_when_draft_run_is_created() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("DDAD");
+    let emp_code = unique_code("DDEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Default Deduction Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Default Deduction Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    let types = list_deduction_types(&pool).await.expect("types");
+    let sss = types.iter().find(|t| t.code == "SSS").expect("sss");
+    save_deduction_defaults(
+        &pool,
+        employee.id,
+        admin.id,
+        &[DeductionDefaultInput {
+            deduction_type_id: sss.id,
+            amount_cents: 25_000,
+        }],
+    )
+    .await
+    .expect("defaults");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("default deduction test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("line");
+    assert_eq!(line.total_deduction_cents, 25_000);
+    assert_eq!(line.net_pay_cents, line.gross_pay_cents - 25_000);
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn finalized_payroll_exports_include_allowances_and_bank_data() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("EXAD");
+    let emp_code = unique_code("EXEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Export Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Export Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput {
+            employee_id: employee.id,
+            monthly_salary_cents: 2_600_000,
+            ot_rate_percent: 132,
+            transport_allowance_cents: 100_000,
+            meal_allowance_cents: 50_000,
+            effective_from: effective,
+            updated_by: admin.id,
+        },
+    )
+    .await
+    .expect("comp");
+    update_admin(
+        &pool,
+        employee.id,
+        admin.id,
+        AdminProfileInput {
+            contact_number: None,
+            personal_email: None,
+            birthdate: None,
+            address: None,
+            emergency_contact_name: None,
+            emergency_contact_phone: None,
+            job_title: None,
+            department: None,
+            employment_type: None,
+            date_hired: None,
+            work_location: None,
+            bank_account: Some("1234567890"),
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
+        },
+    )
+    .await
+    .expect("bank profile");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("export test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    clear_pending_ot_in_run(&pool, run_id).await;
+    finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect("finalize");
+    let run = get_run(&pool, run_id).await.expect("run");
+    let period_label = format!("{period_start} — {period_end}");
+
+    let payroll_csv = build_finalized_run_csv(&pool, &run, &period_label)
+        .await
+        .expect("payroll csv");
+    let payroll_text = String::from_utf8(payroll_csv).expect("utf8");
+    assert!(payroll_text.contains("Allowances"));
+
+    let bank_csv = build_bank_upload_csv(&pool, &run).await.expect("bank csv");
+    let bank_text = String::from_utf8(bank_csv).expect("utf8");
+    assert!(bank_text.contains("1234567890"));
+
+    let journal_csv = build_journal_export_csv(&pool, &run, &period_label)
+        .await
+        .expect("journal csv");
+    let journal_text = String::from_utf8(journal_csv).expect("utf8");
+    assert!(journal_text.contains("Salaries expense"));
+
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("line");
+    let pdf = build_payslip_pdf(&pool, line.id, employee.id)
+        .await
+        .expect("pdf");
+    assert!(pdf.starts_with(b"%PDF"));
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
 }

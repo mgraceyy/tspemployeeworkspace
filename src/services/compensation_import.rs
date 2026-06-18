@@ -3,7 +3,9 @@ use time::Date;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::services::compensation::{parse_allowance_to_cents, parse_salary_to_cents, upsert_profile};
+use crate::services::compensation::{
+    parse_allowance_to_cents, parse_salary_to_cents, upsert_profile, UpsertProfileInput,
+};
 use crate::services::employees::find_by_code;
 use crate::services::timezone::parse_date;
 
@@ -123,10 +125,8 @@ pub fn parse_import_csv(bytes: &[u8]) -> AppResult<ImportPreview> {
             }
         };
 
-        if row_error.is_none() {
-            if !(100..=300).contains(&ot_rate_percent) {
-                row_error = Some("ot_rate_percent must be between 100 and 300".into());
-            }
+        if row_error.is_none() && !(100..=300).contains(&ot_rate_percent) {
+            row_error = Some("ot_rate_percent must be between 100 and 300".into());
         }
 
         if row_error.is_some() {
@@ -195,14 +195,17 @@ pub async fn apply_import(
             .ok_or_else(|| AppError::bad_request("Import row missing employee_id"))?;
         upsert_profile(
             pool,
-            employee_id,
-            row.monthly_salary_cents,
-            row.ot_rate_percent,
-            row.transport_allowance_cents,
-            row.meal_allowance_cents,
-            row.effective_from
-                .ok_or_else(|| AppError::bad_request("Row missing effective_from"))?,
-            editor_id,
+            &UpsertProfileInput {
+                employee_id,
+                monthly_salary_cents: row.monthly_salary_cents,
+                ot_rate_percent: row.ot_rate_percent,
+                transport_allowance_cents: row.transport_allowance_cents,
+                meal_allowance_cents: row.meal_allowance_cents,
+                effective_from: row
+                    .effective_from
+                    .ok_or_else(|| AppError::bad_request("Row missing effective_from"))?,
+                updated_by: editor_id,
+            },
         )
         .await?;
         applied += 1;
@@ -231,4 +234,36 @@ fn find_optional_index(headers: &csv::StringRecord, names: &[&str]) -> Option<us
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::{Date, Month};
+
+    #[test]
+    fn parse_import_csv_accepts_allowance_columns() {
+        let csv = "\
+employee_code,monthly_salary,ot_rate_percent,transport_allowance,meal_allowance,effective_from
+E001,26000,132,1000,500,2026-01-01\n";
+        let preview = parse_import_csv(csv.as_bytes()).expect("parse");
+        assert_eq!(preview.valid_count, 1);
+        let row = &preview.rows[0];
+        assert_eq!(row.employee_code, "E001");
+        assert_eq!(row.monthly_salary_cents, 2_600_000);
+        assert_eq!(row.transport_allowance_cents, 100_000);
+        assert_eq!(row.meal_allowance_cents, 50_000);
+        assert_eq!(
+            row.effective_from,
+            Some(Date::from_calendar_date(2026, Month::January, 1).unwrap())
+        );
+    }
+
+    #[test]
+    fn parse_import_csv_rejects_invalid_ot_rate() {
+        let csv = "employee_code,monthly_salary,ot_rate_percent,effective_from\nE001,26000,50,2026-01-01\n";
+        let preview = parse_import_csv(csv.as_bytes()).expect("parse");
+        assert_eq!(preview.error_count, 1);
+        assert!(preview.rows[0].error.is_some());
+    }
 }

@@ -169,6 +169,28 @@ mod tests {
     }
 
     #[test]
+    fn semimonthly_allowance_is_half_monthly() {
+        assert_eq!(
+            allowance_pay_cents_for_period(150_000, PayPeriodType::Semimonthly),
+            75_000
+        );
+    }
+
+    #[test]
+    fn allowances_increase_gross_pay() {
+        let input = GrossPayInput {
+            monthly_salary_cents: SALARY,
+            monthly_allowance_cents: 150_000,
+            ot_rate_percent: 132,
+            pay_period: PayPeriodType::Semimonthly,
+            approved_ot_minutes: 0,
+            no_show_days: 0,
+        };
+        // base 13,000 + allowance 750 = 13,750
+        assert_eq!(gross_pay_cents(&input), 1_375_000);
+    }
+
+    #[test]
     fn leave_days_do_not_affect_gross() {
         let with_leave = GrossPayInput {
             monthly_salary_cents: SALARY,

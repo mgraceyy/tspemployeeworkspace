@@ -63,7 +63,10 @@ async fn ensure_all_active_have_compensation(pool: &sqlx::PgPool, admin_id: Uuid
     .unwrap_or_default();
     for id in ids {
         let _ = dtr::services::compensation::upsert_profile(
-            pool, id, 1_000_000, 132, 0, 0, effective, admin_id,
+            pool,
+            &dtr::services::compensation::UpsertProfileInput::new(
+                id, 1_000_000, effective, admin_id,
+            ),
         )
         .await;
     }
@@ -410,5 +413,164 @@ async fn non_canonical_closed_period_rejects_draft_via_http() {
     );
 
     cleanup_payroll_period(&pool, period_start, bad_end).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PYEX");
+    let emp_code = unique_code("PYEE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Export HTTP Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Export HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    cleanup_payroll_period(&pool, period_start, period_end).await;
+
+    dtr::services::profile::update_admin(
+        &pool,
+        employee.id,
+        admin.id,
+        dtr::services::profile::AdminProfileInput {
+            contact_number: None,
+            personal_email: None,
+            birthdate: None,
+            address: None,
+            emergency_contact_name: None,
+            emergency_contact_phone: None,
+            job_title: None,
+            department: None,
+            employment_type: None,
+            date_hired: None,
+            work_location: None,
+            bank_account: Some("9876543210"),
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
+        },
+    )
+    .await
+    .expect("bank profile");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("export http test"),
+    )
+    .await
+    .expect("close");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let (_, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
+    let csrf = extract_csrf_token(&payroll_html).expect("csrf");
+    let body = format!(
+        "period_start={}&period_end={}&csrf_token={csrf}",
+        format_date(period_start),
+        format_date(period_end)
+    );
+    let (status, _, cookies) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let run_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM payroll_runs WHERE period_start = $1 AND period_end = $2 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .fetch_one(&pool)
+    .await
+    .expect("run");
+
+    let _ = sqlx::query("UPDATE payroll_lines SET pending_ot_minutes = 0 WHERE run_id = $1")
+        .bind(run_id)
+        .execute(&pool)
+        .await;
+
+    let run_path = format!("/admin/payroll/{run_id}");
+    let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
+    let csrf = extract_csrf_token(&run_html).expect("csrf");
+    let (status, _, cookies) = post_form(
+        &mut app,
+        &format!("/admin/payroll/{run_id}/finalize"),
+        &cookies,
+        &format!("csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (status, payroll_csv, _) = get(
+        &mut app,
+        &format!("/admin/payroll/{run_id}/export.csv"),
+        &cookies,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(payroll_csv.contains("Allowances"));
+
+    let (status, bank_csv, _) = get(
+        &mut app,
+        &format!("/admin/payroll/{run_id}/export-bank.csv"),
+        &cookies,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(bank_csv.contains("9876543210"));
+
+    let line_id: Uuid = sqlx::query_scalar(
+        "SELECT l.id FROM payroll_lines l
+         JOIN employees e ON e.id = l.employee_id
+         WHERE l.run_id = $1 AND e.employee_code = $2",
+    )
+    .bind(run_id)
+    .bind(emp_code.to_uppercase())
+    .fetch_one(&pool)
+    .await
+    .expect("line");
+
+    let (status, pdf_body, headers) = common::get_bytes(
+        &mut app,
+        &format!("/admin/payroll/{run_id}/lines/{line_id}/payslip.pdf"),
+        &cookies,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(pdf_body.starts_with(b"%PDF"));
+    assert!(
+        headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .contains("application/pdf")
+    );
+
+    cleanup_payroll_period(&pool, period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
 }

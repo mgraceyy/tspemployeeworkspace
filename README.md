@@ -5,7 +5,7 @@
 Employee timekeeping (Daily Time Record) and lightweight employee workspace for **TalaSora Prime** — built with Rust, Axum, PostgreSQL, and MiniJinja.
 
 > **Repository:** [github.com/mgraceyy/tspemployeeworkspace](https://github.com/mgraceyy/tspemployeeworkspace)  
-> **License:** MIT · **Version:** v0.2.0
+> **License:** MIT · **Version:** v0.3.0
 
 ## Features
 
@@ -13,11 +13,12 @@ Employee timekeeping (Daily Time Record) and lightweight employee workspace for 
 
 - **Employees** — clock in/out, personal timesheet, voluntary PIN change
 - **Managers** — team dashboard, timesheets, time corrections, no-show marking, OT approval
-- **Admins** — employee management, shift schedules, company settings, payroll reports (CSV/Excel)
+- **Admins** — employee management, shift schedules, company settings, payroll reports (CSV/Excel), compensation import, payroll runs, deduction types
 
 ### Employee workspace
 
-- **Profiles** — employees edit contact number and personal email; admins manage full work profile (department, job title, date hired, etc.)
+- **Profiles** — employees edit contact number, personal email, and profile photo; admins manage full work profile (department, job title, date hired, bank/TIN/SSS/PhilHealth, etc.)
+- **PIN reset** — employees request a reset; managers/admins approve with a temporary PIN (must change on next login)
 - **Requirements** — admin-defined checklist types with optional expiry and file uploads (PDF, images, Word); employees submit, admins approve/reject; expired items can be re-submitted
 - **EOD (End of Day)** — required on days the employee clocks in; department-scoped Team EOD feed; submit lock with admin unlock for corrections
 - **EOD history** — employees browse past submitted reports
@@ -146,8 +147,8 @@ When `METRICS_TOKEN` is set, pass `Authorization: Bearer <token>` or `?token=<to
 |------|--------|
 | Public | `/login`, `/change-pin`, `/logout`, `/health`, `/metrics` |
 | Employee | `/`, `/clock/in`, `/clock/out`, `/me/timesheet`, `/me/timesheet/export.csv`, `/me/leave`, `/me/holidays`, `/me/profile`, `/me/requirements`, `/me/eod`, `/me/eod/history`, `/me/payslips`, `/me/team/eod`, `/notifications` |
-| Manager | `/manager`, `/manager/team`, `/manager/team/{id}/export.csv`, `/manager/correct`, `/manager/absence`, `/manager/ot/{id}/review`, `/manager/eod`, `/manager/eod/export.csv`, `/manager/leave`, `/manager/requirements` |
-| Admin | `/admin/employees`, `/admin/employees/{id}/compensation`, `/admin/payroll`, `/admin/requirements`, `/admin/shifts`, `/admin/settings`, `/admin/holidays`, `/admin/reports` (CSV/Excel, close/reopen period), `/admin/corrections`, `/admin/audit`, `/admin/eod` |
+| Manager | `/manager`, `/manager/team`, `/manager/team/{id}/export.csv`, `/manager/correct`, `/manager/absence`, `/manager/ot/{id}/review`, `/manager/pin-resets`, `/manager/eod`, `/manager/eod/export.csv`, `/manager/leave`, `/manager/requirements` |
+| Admin | `/admin/employees`, `/admin/employees/{id}/compensation`, `/admin/compensation/import`, `/admin/deduction-types`, `/admin/payroll` (CSV/bank/journal/PDF exports), `/admin/requirements`, `/admin/shifts`, `/admin/settings`, `/admin/holidays`, `/admin/reports` (CSV/Excel, close/reopen period), `/admin/corrections`, `/admin/audit`, `/admin/eod` |
 
 ## Admin onboarding tips
 
@@ -169,9 +170,9 @@ docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md), Prometheus 
 
 ## Payroll roadmap
 
-**v0.2.0** adds compensation profiles, payroll runs (draft → deductions → finalize), payslips (`/me/payslips`), and finalized payroll CSV export on top of **v0.1.0** time & attendance reporting (hours, OT, leave counts, period close, CSV/Excel export). See [docs/PAYROLL.md](docs/PAYROLL.md).
+**v0.3.0** adds transport/meal allowances, compensation CSV import, per-employee deduction defaults, bank upload + journal CSV exports, PDF payslips, attendance snapshot staleness warnings, profile photos, PIN reset, and employee archive filtering — on top of **v0.2.0** compensation, payroll runs, HTML payslips, and CSV export, and **v0.1.0** time & attendance reporting. See [docs/PAYROLL.md](docs/PAYROLL.md).
 
-**Ops (locked):** Admin runs payroll in-app; bank/accounting export and 13th-month pay stay outside the app for now.
+**Ops (locked):** Admin runs payroll in-app; 13th-month accrual stays outside the app for now. Bank upload and journal CSV exports are available for finalized runs.
 
 ## Security headers
 
@@ -327,7 +328,7 @@ The audit/deny steps ignore [RUSTSEC-2023-0071](https://rustsec.org/advisories/R
 
 ## Tests
 
-The suite has **162+ Rust tests** across unit, integration, and HTTP layers.
+The suite has **175+ Rust tests** across unit, integration, and HTTP layers.
 
 Unit tests (no database required):
 
@@ -397,8 +398,8 @@ git config user.email "221118937+mgraceyy@users.noreply.github.com"
 Tag production baselines after CI is green:
 
 ```bash
-git tag -a v0.2.0 -m "Payroll phases 1-4: compensation, runs, deductions, payslips, export"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "Payroll pack: allowances, import, exports, PDF payslips; foundation: photo, PIN reset, archive"
+git push origin v0.3.0
 ```
 
 ### Suggested GitHub repository settings

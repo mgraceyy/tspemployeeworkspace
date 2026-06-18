@@ -1267,7 +1267,12 @@ async fn admin_can_finalize_payroll_run_via_http() {
     .await
     .expect("missing comp ids");
     for id in active_ids {
-        dtr::services::compensation::upsert_profile(&pool, id, 1_000_000, 132, 0, 0, effective, admin.id)
+        dtr::services::compensation::upsert_profile(
+            &pool,
+            &dtr::services::compensation::UpsertProfileInput::new(
+                id, 1_000_000, effective, admin.id,
+            ),
+        )
             .await
             .expect("upsert comp");
     }

@@ -441,3 +441,32 @@ pub async fn is_draft_attendance_stale(
             .await?;
     Ok(stored != attendance_snapshot_hash(&current_rows))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::reports::PayrollRow;
+
+    fn sample_row(approved_ot_minutes: i64) -> PayrollRow {
+        PayrollRow {
+            employee_code: "E001".to_string(),
+            full_name: "Test Employee".to_string(),
+            department: Some("Engineering".to_string()),
+            regular_minutes: 9_600,
+            approved_ot_minutes,
+            pending_ot_minutes: 0,
+            sick_leave_days: 0,
+            vacation_days: 0,
+            official_leave_days: 0,
+            offset_days: 0,
+            no_show_days: 0,
+        }
+    }
+
+    #[test]
+    fn attendance_snapshot_hash_changes_when_ot_changes() {
+        let unchanged = attendance_snapshot_hash(&[sample_row(0)]);
+        let changed = attendance_snapshot_hash(&[sample_row(60)]);
+        assert_ne!(unchanged, changed);
+    }
+}

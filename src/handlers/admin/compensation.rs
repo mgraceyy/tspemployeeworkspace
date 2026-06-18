@@ -17,7 +17,7 @@ use crate::services::{
     compensation::{
         format_salary_cents, get_compensation, list_deduction_defaults, list_history,
         parse_allowance_to_cents, parse_salary_to_cents, save_deduction_defaults,
-        upsert_profile, DeductionDefaultInput,
+        upsert_profile, UpsertProfileInput, DeductionDefaultInput,
     },
     compensation_import::{apply_import, parse_import_csv, resolve_import_rows, ImportPreview},
     employees::find_by_id,
@@ -165,13 +165,15 @@ pub async fn save_compensation_action(
 
     upsert_profile(
         &state.pool,
-        employee_id,
-        monthly_salary_cents,
-        ot_rate_percent,
-        transport_allowance_cents,
-        meal_allowance_cents,
-        effective_from,
-        user.employee_id,
+        &UpsertProfileInput {
+            employee_id,
+            monthly_salary_cents,
+            ot_rate_percent,
+            transport_allowance_cents,
+            meal_allowance_cents,
+            effective_from,
+            updated_by: user.employee_id,
+        },
     )
     .await?;
 

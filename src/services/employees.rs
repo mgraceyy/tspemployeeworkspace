@@ -337,13 +337,12 @@ pub async fn seed_e2e_fixtures(pool: &PgPool, enabled: bool) -> AppResult<()> {
             for employee_id in missing_ids {
                 crate::services::compensation::upsert_profile(
                     pool,
-                    employee_id,
-                    2_500_000,
-                    132,
-                    0,
-                    0,
-                    effective,
-                    admin.id,
+                    &crate::services::compensation::UpsertProfileInput::new(
+                        employee_id,
+                        2_500_000,
+                        effective,
+                        admin.id,
+                    ),
                 )
                 .await?;
             }

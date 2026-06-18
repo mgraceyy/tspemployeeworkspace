@@ -27,7 +27,9 @@ no_show_deduction = daily_rate × no_show_days
 
 ot_pay         = (approved_ot_minutes ÷ 60) × hourly_rate × (ot_rate_percent ÷ 100)
 
-gross_pay      = period_base − no_show_deduction + ot_pay
+allowance_pay  = monthly_allowances × period_factor
+
+gross_pay      = period_base + allowance_pay − no_show_deduction + ot_pay
 ```
 
 Leave day counts in payroll reports do **not** change `gross_pay`.
@@ -56,6 +58,30 @@ Implementation: `src/services/payroll/compute.rs`
 | Admin UI `/admin/employees/{id}/compensation` | Done |
 | Rate history on salary change | Done |
 | Gross pay calculation module (unit tested) | Done |
+
+### v0.3.0 — Payroll pack ✅
+
+| Area | Status |
+|------|--------|
+| Transport + meal allowances on compensation profiles | Done |
+| Allowances in gross pay + payroll lines + payslips | Done |
+| Compensation CSV import (`/admin/compensation/import`) | Done |
+| Per-employee deduction defaults (auto-applied on draft creation) | Done |
+| Deduction types admin (`/admin/deduction-types`) | Done |
+| Bank upload CSV (`/admin/payroll/{run_id}/export-bank.csv`) | Done |
+| Journal entry CSV (`/admin/payroll/{run_id}/export-journal.csv`) | Done |
+| PDF payslips (employee + admin) | Done |
+| Attendance snapshot hash + stale-draft warning | Done |
+
+### v0.3.0 — Foundation ✅
+
+| Area | Status |
+|------|--------|
+| Profile photo upload | Done |
+| Bank account, TIN, SSS, PhilHealth on profile | Done |
+| PIN reset request workflow | Done |
+| Employee archive filter on admin list | Done |
+| Logout everywhere + session version invalidation | Done |
 
 ### v0.2.0 — Phase 2 payroll runs ✅
 
@@ -195,11 +221,13 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 
 ---
 
-## Phase 6 — Accounting handoff
+## Phase 6 — Accounting handoff (partial ✅)
 
-- Bank upload CSV (needs `bank_account` on profile)
-- Journal entry export
-- 13th-month accrual report
+| Item | Status |
+|------|--------|
+| Bank upload CSV (`export-bank.csv`, uses `bank_account` on profile) | ✅ Done |
+| Journal entry CSV (`export-journal.csv`) | ✅ Done |
+| 13th-month accrual report | Deferred — external spreadsheet |
 
 ---
 
@@ -211,7 +239,13 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | `/admin/payroll` | ✅ Done |
 | `/admin/payroll/{id}` | ✅ Done |
 | `/admin/payroll/{id}/finalize` | ✅ Done |
-| `/admin/payroll/{run_id}/export.csv` | ✅ Done |
+| `/admin/payroll/{run_id}/export.csv` | ✅ Done (includes allowances) |
+| `/admin/payroll/{run_id}/export-bank.csv` | ✅ Done |
+| `/admin/payroll/{run_id}/export-journal.csv` | ✅ Done |
+| `/admin/payroll/{run_id}/lines/{line_id}/payslip.pdf` | ✅ Done |
+| `/me/payslips/{line_id}/payslip.pdf` | ✅ Done |
+| `/admin/compensation/import` | ✅ Done |
+| `/admin/deduction-types` | ✅ Done |
 | `/admin/payroll/{run_id}/void` | ✅ Done |
 | `/admin/payroll/{run_id}/lines/{line_id}` | ✅ Done |
 | `/me/payslips` | ✅ Done |
@@ -225,7 +259,7 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 | Topic | Choice |
 |-------|--------|
 | Who runs payroll | **Admin** (same role as today — no separate finance user) |
-| Bank / accounting export | **Deferred** — manual handoff outside the app for now |
+| Bank / journal export | **In-app CSV** on finalized runs; accounting still reviews before upload |
 | 13th month | **External** — keep in spreadsheet / accounting tool |
 
 ---

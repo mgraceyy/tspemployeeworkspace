@@ -232,11 +232,7 @@ async fn serve_profile_photo(
     } else {
         "image/jpeg"
     };
-    let disposition = if inline {
-        "inline"
-    } else {
-        "inline"
-    };
+    let disposition = if inline { "inline" } else { "attachment" };
     Ok(Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CONTENT_DISPOSITION, disposition)

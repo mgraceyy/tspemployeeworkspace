@@ -143,33 +143,54 @@ pub async fn list_history(
     .map_err(|e| AppError::Internal(e.into()))
 }
 
-pub async fn upsert_profile(
-    pool: &PgPool,
-    employee_id: Uuid,
-    monthly_salary_cents: i64,
-    ot_rate_percent: i32,
-    transport_allowance_cents: i64,
-    meal_allowance_cents: i64,
-    effective_from: Date,
-    updated_by: Uuid,
-) -> AppResult<()> {
-    if !(100..=300).contains(&ot_rate_percent) {
+#[derive(Debug, Clone)]
+pub struct UpsertProfileInput {
+    pub employee_id: Uuid,
+    pub monthly_salary_cents: i64,
+    pub ot_rate_percent: i32,
+    pub transport_allowance_cents: i64,
+    pub meal_allowance_cents: i64,
+    pub effective_from: Date,
+    pub updated_by: Uuid,
+}
+
+impl UpsertProfileInput {
+    pub fn new(
+        employee_id: Uuid,
+        monthly_salary_cents: i64,
+        effective_from: Date,
+        updated_by: Uuid,
+    ) -> Self {
+        Self {
+            employee_id,
+            monthly_salary_cents,
+            ot_rate_percent: 132,
+            transport_allowance_cents: 0,
+            meal_allowance_cents: 0,
+            effective_from,
+            updated_by,
+        }
+    }
+}
+
+pub async fn upsert_profile(pool: &PgPool, input: &UpsertProfileInput) -> AppResult<()> {
+    if !(100..=300).contains(&input.ot_rate_percent) {
         return Err(AppError::bad_request(
             "OT rate must be between 100% and 300%",
         ));
     }
-    if transport_allowance_cents < 0 || meal_allowance_cents < 0 {
+    if input.transport_allowance_cents < 0 || input.meal_allowance_cents < 0 {
         return Err(AppError::bad_request("Allowances cannot be negative"));
     }
 
-    let existing = get_compensation(pool, employee_id).await?;
+    let existing = get_compensation(pool, input.employee_id).await?;
     let mut tx = pool
         .begin()
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
 
     if let Some(old) = existing {
-        let closes_on = effective_from - time::Duration::days(1);
+        let closes_on = input.effective_from - time::Duration::days(1);
         if closes_on >= old.effective_from {
             sqlx::query(
                 "INSERT INTO compensation_history
@@ -177,14 +198,14 @@ pub async fn upsert_profile(
                      meal_allowance_cents, effective_from, effective_to, changed_by)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
-            .bind(employee_id)
+            .bind(input.employee_id)
             .bind(old.monthly_salary_cents)
             .bind(old.ot_rate_percent)
             .bind(old.transport_allowance_cents)
             .bind(old.meal_allowance_cents)
             .bind(old.effective_from)
             .bind(closes_on)
-            .bind(updated_by)
+            .bind(input.updated_by)
             .execute(&mut *tx)
             .await
             .map_err(|e| AppError::Internal(e.into()))?;
@@ -205,13 +226,13 @@ pub async fn upsert_profile(
             updated_by = EXCLUDED.updated_by,
             updated_at = now()",
     )
-    .bind(employee_id)
-    .bind(monthly_salary_cents)
-    .bind(ot_rate_percent)
-    .bind(transport_allowance_cents)
-    .bind(meal_allowance_cents)
-    .bind(effective_from)
-    .bind(updated_by)
+    .bind(input.employee_id)
+    .bind(input.monthly_salary_cents)
+    .bind(input.ot_rate_percent)
+    .bind(input.transport_allowance_cents)
+    .bind(input.meal_allowance_cents)
+    .bind(input.effective_from)
+    .bind(input.updated_by)
     .execute(&mut *tx)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
