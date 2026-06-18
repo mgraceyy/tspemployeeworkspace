@@ -280,7 +280,31 @@ pub async fn reopen_pay_period(pool: &PgPool, start: Date, end: Date) -> AppResu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::UserRole;
+    use crate::services::employees::create_employee;
     use time::Month;
+
+    async fn test_admin(pool: &PgPool) -> (Uuid, String) {
+        let code = format!("PCAD{}", &Uuid::new_v4().simple().to_string()[..8]);
+        let admin = create_employee(
+            pool,
+            &code,
+            "Payroll Controls Test Admin",
+            "482915",
+            UserRole::Admin,
+            None,
+        )
+        .await
+        .expect("create test admin");
+        (admin.id, code)
+    }
+
+    async fn cleanup_test_admin(pool: &PgPool, code: &str) {
+        let _ = sqlx::query("DELETE FROM employees WHERE employee_code = $1")
+            .bind(code)
+            .execute(pool)
+            .await;
+    }
 
     #[test]
     fn close_result_distinguishes_new_and_duplicate() {
@@ -299,7 +323,7 @@ mod tests {
 
         let start = Date::from_calendar_date(2099, Month::January, 1).unwrap();
         let end = Date::from_calendar_date(2099, Month::January, 7).unwrap();
-        let admin_id = Uuid::new_v4();
+        let (admin_id, admin_code) = test_admin(&pool).await;
 
         let first = close_pay_period(&pool, start, end, admin_id, Some("unit test"))
             .await
@@ -314,6 +338,7 @@ mod tests {
         reopen_pay_period(&pool, start, end)
             .await
             .expect("cleanup reopen");
+        cleanup_test_admin(&pool, &admin_code).await;
     }
 
     #[tokio::test]
@@ -323,7 +348,7 @@ mod tests {
             return;
         };
 
-        let admin_id = Uuid::new_v4();
+        let (admin_id, admin_code) = test_admin(&pool).await;
         let first_start = Date::from_calendar_date(2099, Month::March, 1).unwrap();
         let first_end = Date::from_calendar_date(2099, Month::March, 7).unwrap();
         let overlap_start = Date::from_calendar_date(2099, Month::March, 5).unwrap();
@@ -344,6 +369,7 @@ mod tests {
         reopen_pay_period(&pool, first_start, first_end)
             .await
             .expect("cleanup reopen");
+        cleanup_test_admin(&pool, &admin_code).await;
     }
 
     async fn test_pool() -> Option<PgPool> {
