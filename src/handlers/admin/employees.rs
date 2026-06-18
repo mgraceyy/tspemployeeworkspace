@@ -22,7 +22,7 @@ use crate::services::{
     onboarding::{
         bulk_assign_department, count_active_without_department, count_admin_employee_rows,
         list_admin_employee_rows, list_distinct_departments, profile_completeness_pct,
-        AdminEmployeeQuery,
+        AdminEmployeeQuery, EmployeeListStatus,
     },
     pagination::{clamp_page, clamp_per_page, offset, PageInfo},
     settings::get_settings,
@@ -31,21 +31,31 @@ use crate::state::AppState;
 
 use super::common::{pagination_context, ListPageQuery};
 
+#[derive(Deserialize, Default)]
+pub struct EmployeesListQuery {
+    #[serde(flatten)]
+    pub list: ListPageQuery,
+    pub status: Option<String>,
+}
+
 pub async fn employees_page(
     State(state): State<AppState>,
     session: Session,
     AuthUser(user): AuthUser,
-    Query(list_query): Query<ListPageQuery>,
+    Query(list_query): Query<EmployeesListQuery>,
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
-    let page = clamp_page(list_query.page);
-    let per_page = clamp_per_page(list_query.per_page);
-    let total = count_admin_employee_rows(&state.pool, list_query.q.as_deref()).await?;
+    let page = clamp_page(list_query.list.page);
+    let per_page = clamp_per_page(list_query.list.per_page);
+    let status = EmployeeListStatus::from_query(list_query.status.as_deref());
+    let total =
+        count_admin_employee_rows(&state.pool, list_query.list.q.as_deref(), status).await?;
     let page_info = PageInfo::new(page, per_page, total);
     let employees = list_admin_employee_rows(
         &state.pool,
         &AdminEmployeeQuery {
-            search: list_query.q.clone(),
+            search: list_query.list.q.clone(),
+            status,
             limit: per_page,
             offset: offset(page, per_page),
         },
@@ -103,7 +113,14 @@ pub async fn employees_page(
             managers => manager_options,
             departments => departments,
             no_department_count => no_department_count,
-            pagination => pagination_context("/admin/employees", &list_query, &page_info),
+            pagination => pagination_context("/admin/employees", &list_query.list, &page_info),
+            status_filter => match status {
+                EmployeeListStatus::Active => "active",
+                EmployeeListStatus::Archived => "archived",
+                EmployeeListStatus::All => "all",
+            },
+            show_archived => status == EmployeeListStatus::Archived,
+            show_all => status == EmployeeListStatus::All,
         },
     )
     .await

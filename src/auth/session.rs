@@ -24,6 +24,8 @@ pub struct UserSession {
     pub full_name: String,
     pub role: UserRole,
     pub must_change_pin: bool,
+    #[serde(default)]
+    pub session_version: i32,
 }
 
 pub async fn get_session(session: &Session) -> AppResult<UserSession> {
@@ -54,18 +56,25 @@ pub async fn sync_session_with_db(pool: &PgPool, session: &Session) -> AppResult
         return Err(AppError::Unauthorized);
     }
 
+    if cached.session_version != employee.session_version {
+        clear_session(session).await?;
+        return Err(AppError::Unauthorized);
+    }
+
     let fresh = UserSession {
         employee_id: employee.id,
         employee_code: employee.employee_code,
         full_name: employee.full_name,
         role: employee.role,
         must_change_pin: employee.must_change_pin,
+        session_version: employee.session_version,
     };
 
     if fresh.employee_code != cached.employee_code
         || fresh.full_name != cached.full_name
         || fresh.role != cached.role
         || fresh.must_change_pin != cached.must_change_pin
+        || fresh.session_version != cached.session_version
     {
         set_session(session, fresh.clone()).await?;
     }

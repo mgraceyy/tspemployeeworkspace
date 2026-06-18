@@ -14,7 +14,7 @@ use dtr::services::compensation::{
 use dtr::services::corrections::{
     create_corrected_entry, list_correction_logs, CorrectionLogQuery, CorrectionSubmission,
 };
-use dtr::services::employees::create_employee;
+use dtr::services::employees::{create_employee, find_by_id, set_employee_active};
 use dtr::services::eod::{
     list_department_eod, list_employee_eod_history, needs_eod_reminder, save_report, unlock_report,
     EodTaskInput,
@@ -420,6 +420,10 @@ async fn eod_required_after_clock_in_and_visible_by_department() {
             employment_type: None,
             date_hired: None,
             work_location: None,
+            bank_account: None,
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
         },
     )
     .await
@@ -440,6 +444,10 @@ async fn eod_required_after_clock_in_and_visible_by_department() {
             employment_type: None,
             date_hired: None,
             work_location: None,
+            bank_account: None,
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
         },
     )
     .await
@@ -912,6 +920,7 @@ async fn in_app_notifications_include_missing_eod() {
         full_name: employee.full_name.clone(),
         role: UserRole::Employee,
         must_change_pin: false,
+        session_version: 0,
     };
 
     let notes = list_for_user(&pool, &user).await.expect("notifications");
@@ -2238,4 +2247,189 @@ async fn payroll_run_honors_biweekly_pay_period_base_pay() {
         cleanup_employee(&pool, &admin_code).await;
     })
     .await;
+}
+
+#[tokio::test]
+async fn admin_profile_stores_payroll_identity_fields() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let code = unique_code("BANK");
+    let employee = create_employee(
+        &pool,
+        &code,
+        "Bank Fields Test",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("create");
+
+    update_admin(
+        &pool,
+        employee.id,
+        employee.id,
+        AdminProfileInput {
+            contact_number: None,
+            personal_email: None,
+            birthdate: None,
+            address: None,
+            emergency_contact_name: None,
+            emergency_contact_phone: None,
+            job_title: None,
+            department: None,
+            employment_type: None,
+            date_hired: None,
+            work_location: None,
+            bank_account: Some("1234567890"),
+            tin: Some("123-456-789"),
+            sss_number: Some("01-2345678-9"),
+            philhealth_number: Some("12-345678901-2"),
+        },
+    )
+    .await
+    .expect("update profile");
+
+    let profile = get_profile(&pool, employee.id).await.expect("get profile");
+    assert_eq!(profile.bank_account.as_deref(), Some("1234567890"));
+    assert_eq!(profile.tin.as_deref(), Some("123-456-789"));
+    assert_eq!(profile.sss_number.as_deref(), Some("01-2345678-9"));
+    assert_eq!(
+        profile.philhealth_number.as_deref(),
+        Some("12-345678901-2")
+    );
+
+    cleanup_employee(&pool, &code).await;
+}
+
+#[tokio::test]
+async fn pin_reset_request_approval_forces_pin_change() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let mgr_code = unique_code("PRM");
+    let emp_code = unique_code("PRE");
+    let manager = create_employee(
+        &pool,
+        &mgr_code,
+        "PIN Reset Manager",
+        "482915",
+        UserRole::Manager,
+        None,
+    )
+    .await
+    .expect("manager");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "PIN Reset Employee",
+        "739164",
+        UserRole::Employee,
+        Some(manager.id),
+    )
+    .await
+    .expect("employee");
+
+    let request = dtr::services::pin_reset::create_request(&pool, employee.id, Some("Forgot PIN"))
+        .await
+        .expect("request");
+    dtr::services::pin_reset::approve_request(
+        &pool,
+        request.id,
+        manager.id,
+        false,
+        "739164",
+    )
+    .await
+    .expect("approve");
+
+    let row = find_by_id(&pool, employee.id)
+        .await
+        .expect("find")
+        .expect("employee row");
+    assert!(row.must_change_pin);
+    assert_eq!(row.session_version, 1);
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &mgr_code).await;
+}
+
+#[tokio::test]
+async fn active_employee_list_excludes_archived_by_default() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let active_code = unique_code("ACT");
+    let archived_code = unique_code("ARC");
+    create_employee(
+        &pool,
+        &active_code,
+        "Active List Active",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("active");
+    let archived = create_employee(
+        &pool,
+        &archived_code,
+        "Active List Archived",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("archived");
+    set_employee_active(&pool, archived.id, false)
+        .await
+        .expect("deactivate");
+
+    use dtr::services::onboarding::{
+        count_admin_employee_rows, list_admin_employee_rows, AdminEmployeeQuery,
+        EmployeeListStatus,
+    };
+
+    let active_rows = list_admin_employee_rows(
+        &pool,
+        &AdminEmployeeQuery {
+            search: Some(active_code.clone()),
+            status: EmployeeListStatus::Active,
+            limit: 50,
+            offset: 0,
+        },
+    )
+    .await
+    .expect("active list");
+    assert_eq!(active_rows.len(), 1);
+    assert!(active_rows[0].is_active);
+
+    let archived_rows = list_admin_employee_rows(
+        &pool,
+        &AdminEmployeeQuery {
+            search: Some(archived_code.clone()),
+            status: EmployeeListStatus::Archived,
+            limit: 50,
+            offset: 0,
+        },
+    )
+    .await
+    .expect("archived list");
+    assert_eq!(archived_rows.len(), 1);
+    assert!(!archived_rows[0].is_active);
+
+    let total_active = count_admin_employee_rows(&pool, None, EmployeeListStatus::Active)
+        .await
+        .expect("count");
+    assert!(total_active >= 1);
+
+    cleanup_employee(&pool, &active_code).await;
+    cleanup_employee(&pool, &archived_code).await;
 }

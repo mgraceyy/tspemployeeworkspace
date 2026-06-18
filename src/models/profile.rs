@@ -15,6 +15,11 @@ pub struct EmployeeProfile {
     pub employment_type: Option<String>,
     pub date_hired: Option<Date>,
     pub work_location: Option<String>,
+    pub bank_account: Option<String>,
+    pub tin: Option<String>,
+    pub sss_number: Option<String>,
+    pub philhealth_number: Option<String>,
+    pub photo_path: Option<String>,
     pub updated_at: OffsetDateTime,
     pub updated_by: Option<Uuid>,
 }

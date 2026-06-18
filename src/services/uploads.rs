@@ -125,6 +125,93 @@ fn is_docx_zip(bytes: &[u8]) -> bool {
         .any(|window| window == b"word/document.xml")
 }
 
+pub fn validate_profile_photo(
+    original_name: &str,
+    mime_type: Option<&str>,
+    bytes: &[u8],
+    max_bytes: usize,
+) -> AppResult<(String, String)> {
+    if bytes.is_empty() {
+        return Err(AppError::bad_request("Uploaded file is empty"));
+    }
+    if bytes.len() > max_bytes {
+        return Err(AppError::bad_request(format!(
+            "Photo is too large (max {} MB)",
+            max_bytes / (1024 * 1024)
+        )));
+    }
+
+    let sanitized = sanitize_filename(original_name);
+    if sanitized.is_empty() {
+        return Err(AppError::bad_request("Invalid file name"));
+    }
+
+    let ext = Path::new(&sanitized)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or_else(|| AppError::bad_request("Photo must have an extension"))?;
+
+    let allowed_ext = ["jpg", "jpeg", "png", "webp"];
+    if !allowed_ext.contains(&ext.as_str()) {
+        return Err(AppError::bad_request(
+            "Allowed photo types: JPG, PNG, or WEBP",
+        ));
+    }
+
+    let mime = mime_type.unwrap_or("").to_ascii_lowercase();
+    let allowed_mimes = ["image/jpeg", "image/png", "image/webp"];
+    if !mime.is_empty() && !allowed_mimes.iter().any(|allowed| *allowed == mime) {
+        return Err(AppError::bad_request(
+            "Unsupported photo type — use JPG, PNG, or WEBP",
+        ));
+    }
+
+    let sniffed = sniff_file_kind(bytes).ok_or_else(|| {
+        AppError::bad_request("Unrecognized photo content — upload a valid JPG, PNG, or WEBP")
+    })?;
+    if !matches!(
+        (sniffed, ext.as_str()),
+        ("jpeg", "jpg") | ("jpeg", "jpeg") | ("png", "png") | ("webp", "webp")
+    ) {
+        return Err(AppError::bad_request(
+            "Photo content does not match its extension",
+        ));
+    }
+
+    Ok((sanitized, ext))
+}
+
+pub async fn store_profile_photo(
+    upload_dir: &Path,
+    employee_id: Uuid,
+    original_name: &str,
+    mime_type: &str,
+    bytes: &[u8],
+    max_bytes: usize,
+) -> AppResult<StoredUpload> {
+    let (_sanitized, ext) = validate_profile_photo(original_name, Some(mime_type), bytes, max_bytes)?;
+    let relative = format!("photos/{employee_id}.{ext}");
+    let absolute = upload_dir.join(&relative);
+
+    if let Some(parent) = absolute.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+    }
+
+    tokio::fs::write(&absolute, bytes)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+    Ok(StoredUpload {
+        original_name: original_name.to_string(),
+        stored_path: relative,
+        mime_type: mime_type.to_string(),
+        size_bytes: bytes.len() as i64,
+    })
+}
+
 pub async fn store_requirement_file(
     upload_dir: &Path,
     employee_id: Uuid,

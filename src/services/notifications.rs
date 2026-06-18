@@ -8,6 +8,7 @@ use crate::services::{
     eod::{count_missing_team_eod, needs_eod_reminder},
     leave::count_pending_for_manager as count_pending_leave,
     ot::count_pending,
+    pin_reset::count_pending_for_reviewer,
     requirements::is_requirement_expired,
     settings::get_settings,
     timezone::{company_date_now, format_time},
@@ -96,6 +97,24 @@ pub async fn list_for_user(pool: &PgPool, user: &UserSession) -> AppResult<Vec<N
                 title: "Pending leave requests".into(),
                 message,
                 href: "/manager/leave".into(),
+            });
+        }
+
+        let pending_pin_resets =
+            count_pending_for_reviewer(pool, user.employee_id, is_admin).await?;
+        if pending_pin_resets > 0 {
+            let message = if pending_pin_resets == 1 {
+                "1 PIN reset request needs your review.".into()
+            } else {
+                format!("{pending_pin_resets} PIN reset requests need your review.")
+            };
+            items.push(Notification {
+                key: format!("pending_pin_resets:{pending_pin_resets}"),
+                kind: "pending_pin_resets".into(),
+                severity: "warning".into(),
+                title: "PIN reset requests".into(),
+                message,
+                href: "/manager/pin-resets".into(),
             });
         }
 

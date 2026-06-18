@@ -134,6 +134,7 @@ pub async fn login_submit(
             full_name: employee.full_name,
             role: employee.role,
             must_change_pin: employee.must_change_pin,
+            session_version: employee.session_version,
         },
     )
     .await?;
@@ -294,6 +295,96 @@ pub async fn change_pin_submit(
 pub async fn logout(session: Session) -> AppResult<Redirect> {
     clear_session(&session).await?;
     Ok(Redirect::to("/login"))
+}
+
+#[derive(Deserialize)]
+pub struct PinResetRequestForm {
+    employee_code: String,
+    reason: Option<String>,
+}
+
+pub async fn pin_reset_request_page(
+    State(state): State<AppState>,
+    session: Session,
+) -> AppResult<PageOrRedirect> {
+    if sync_session_with_db(&state.pool, &session).await.is_ok() {
+        return Ok(PageOrRedirect::Redirect(Redirect::to("/me/profile")));
+    }
+
+    let settings = get_settings(&state.pool).await?;
+    let page = render_page(
+        &state,
+        &session,
+        None,
+        &settings.company_name,
+        "Request PIN Reset",
+        "pin_reset_request.html",
+        context! {
+            error => None::<String>,
+            success => None::<String>,
+        },
+    )
+    .await?;
+    Ok(PageOrRedirect::Page(page))
+}
+
+pub async fn pin_reset_request_submit(
+    State(state): State<AppState>,
+    session: Session,
+    ClientIp(client_ip): ClientIp,
+    Form(form): Form<PinResetRequestForm>,
+) -> AppResult<PageOrRedirect> {
+    let settings = get_settings(&state.pool).await?;
+
+    if state.post_limiter.is_limited(&client_ip).await? {
+        return pin_reset_request_feedback(
+            &state,
+            &session,
+            &settings.company_name,
+            None,
+            Some("Too many requests. Try again in a minute."),
+        )
+        .await;
+    }
+
+    crate::services::pin_reset::create_request_by_code(
+        &state.pool,
+        &form.employee_code,
+        form.reason.as_deref(),
+    )
+    .await?;
+
+    pin_reset_request_feedback(
+        &state,
+        &session,
+        &settings.company_name,
+        Some("If your employee code is valid, your manager or admin will review the request."),
+        None,
+    )
+    .await
+}
+
+async fn pin_reset_request_feedback(
+    state: &AppState,
+    session: &Session,
+    company_name: &str,
+    success: Option<&str>,
+    error: Option<&str>,
+) -> AppResult<PageOrRedirect> {
+    render_page(
+        state,
+        session,
+        None,
+        company_name,
+        "Request PIN Reset",
+        "pin_reset_request.html",
+        context! {
+            error => error.map(str::to_string),
+            success => success.map(str::to_string),
+        },
+    )
+    .await
+    .map(PageOrRedirect::Page)
 }
 
 async fn login_error_page(

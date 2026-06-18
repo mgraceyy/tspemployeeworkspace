@@ -17,7 +17,16 @@ pub struct AdminProfileInput<'a> {
     pub employment_type: Option<&'a str>,
     pub date_hired: Option<Date>,
     pub work_location: Option<&'a str>,
+    pub bank_account: Option<&'a str>,
+    pub tin: Option<&'a str>,
+    pub sss_number: Option<&'a str>,
+    pub philhealth_number: Option<&'a str>,
 }
+
+const PROFILE_COLUMNS: &str = "employee_id, contact_number, personal_email, birthdate, address,
+                emergency_contact_name, emergency_contact_phone, job_title, department,
+                employment_type, date_hired, work_location, bank_account, tin, sss_number,
+                philhealth_number, photo_path, updated_at, updated_by";
 
 fn empty_to_none(value: Option<&str>) -> Option<String> {
     value.map(str::trim).and_then(|v| {
@@ -42,12 +51,9 @@ pub async fn ensure_profile(pool: &PgPool, employee_id: Uuid) -> AppResult<()> {
 
 pub async fn get_profile(pool: &PgPool, employee_id: Uuid) -> AppResult<EmployeeProfile> {
     ensure_profile(pool, employee_id).await?;
-    sqlx::query_as::<_, EmployeeProfile>(
-        "SELECT employee_id, contact_number, personal_email, birthdate, address,
-                emergency_contact_name, emergency_contact_phone, job_title, department,
-                employment_type, date_hired, work_location, updated_at, updated_by
-         FROM employee_profiles WHERE employee_id = $1",
-    )
+    sqlx::query_as::<_, EmployeeProfile>(&format!(
+        "SELECT {PROFILE_COLUMNS} FROM employee_profiles WHERE employee_id = $1"
+    ))
     .bind(employee_id)
     .fetch_one(pool)
     .await
@@ -61,17 +67,15 @@ pub async fn update_self_service(
     personal_email: Option<&str>,
 ) -> AppResult<EmployeeProfile> {
     ensure_profile(pool, employee_id).await?;
-    sqlx::query_as::<_, EmployeeProfile>(
+    sqlx::query_as::<_, EmployeeProfile>(&format!(
         "UPDATE employee_profiles
          SET contact_number = $2,
              personal_email = $3,
              updated_at = now(),
              updated_by = $1
          WHERE employee_id = $1
-         RETURNING employee_id, contact_number, personal_email, birthdate, address,
-                   emergency_contact_name, emergency_contact_phone, job_title, department,
-                   employment_type, date_hired, work_location, updated_at, updated_by",
-    )
+         RETURNING {PROFILE_COLUMNS}"
+    ))
     .bind(employee_id)
     .bind(empty_to_none(contact_number))
     .bind(empty_to_none(personal_email))
@@ -87,7 +91,7 @@ pub async fn update_admin(
     input: AdminProfileInput<'_>,
 ) -> AppResult<EmployeeProfile> {
     ensure_profile(pool, employee_id).await?;
-    sqlx::query_as::<_, EmployeeProfile>(
+    sqlx::query_as::<_, EmployeeProfile>(&format!(
         "UPDATE employee_profiles
          SET contact_number = $3,
              personal_email = $4,
@@ -100,13 +104,15 @@ pub async fn update_admin(
              employment_type = $11,
              date_hired = $12,
              work_location = $13,
+             bank_account = $14,
+             tin = $15,
+             sss_number = $16,
+             philhealth_number = $17,
              updated_at = now(),
              updated_by = $2
          WHERE employee_id = $1
-         RETURNING employee_id, contact_number, personal_email, birthdate, address,
-                   emergency_contact_name, emergency_contact_phone, job_title, department,
-                   employment_type, date_hired, work_location, updated_at, updated_by",
-    )
+         RETURNING {PROFILE_COLUMNS}"
+    ))
     .bind(employee_id)
     .bind(editor_id)
     .bind(empty_to_none(input.contact_number))
@@ -120,9 +126,34 @@ pub async fn update_admin(
     .bind(empty_to_none(input.employment_type))
     .bind(input.date_hired)
     .bind(empty_to_none(input.work_location))
+    .bind(empty_to_none(input.bank_account))
+    .bind(empty_to_none(input.tin))
+    .bind(empty_to_none(input.sss_number))
+    .bind(empty_to_none(input.philhealth_number))
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))
+}
+
+pub async fn set_photo_path(
+    pool: &PgPool,
+    employee_id: Uuid,
+    editor_id: Uuid,
+    photo_path: Option<&str>,
+) -> AppResult<()> {
+    ensure_profile(pool, employee_id).await?;
+    sqlx::query(
+        "UPDATE employee_profiles
+         SET photo_path = $3, updated_at = now(), updated_by = $2
+         WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .bind(editor_id)
+    .bind(photo_path)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(())
 }
 
 pub async fn get_work_profile(pool: &PgPool, employee_id: Uuid) -> AppResult<EmployeeWorkProfile> {

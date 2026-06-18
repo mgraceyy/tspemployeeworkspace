@@ -51,9 +51,36 @@ pub fn profile_completeness_pct(row: &AdminEmployeeRow) -> i32 {
     ((filled as f64 / 7.0) * 100.0).round() as i32
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EmployeeListStatus {
+    #[default]
+    Active,
+    Archived,
+    All,
+}
+
+impl EmployeeListStatus {
+    pub fn from_query(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("archived") => Self::Archived,
+            Some("all") => Self::All,
+            _ => Self::Active,
+        }
+    }
+
+    fn sql_clause(&self) -> &'static str {
+        match self {
+            Self::Active => "e.is_active = TRUE",
+            Self::Archived => "e.is_active = FALSE",
+            Self::All => "TRUE",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AdminEmployeeQuery {
     pub search: Option<String>,
+    pub status: EmployeeListStatus,
     pub limit: i64,
     pub offset: i64,
 }
@@ -66,14 +93,19 @@ fn employee_search_clause() -> &'static str {
      ))"
 }
 
-pub async fn count_admin_employee_rows(pool: &PgPool, search: Option<&str>) -> AppResult<i64> {
+pub async fn count_admin_employee_rows(
+    pool: &PgPool,
+    search: Option<&str>,
+    status: EmployeeListStatus,
+) -> AppResult<i64> {
     let pattern = crate::services::pagination::search_pattern(search);
     let count: i64 = sqlx::query_scalar(&format!(
         "SELECT COUNT(*)
          FROM employees e
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
-         WHERE {}",
-        employee_search_clause()
+         WHERE {} AND {}",
+        employee_search_clause(),
+        status.sql_clause()
     ))
     .bind(pattern)
     .fetch_one(pool)
@@ -106,10 +138,11 @@ pub async fn list_admin_employee_rows(
              JOIN requirement_types rt ON rt.id = er.requirement_type_id AND rt.is_active = TRUE
              GROUP BY er.employee_id
          ) r ON r.employee_id = e.id
-         WHERE {}
+         WHERE {} AND {}
          ORDER BY e.full_name
          LIMIT $2 OFFSET $3",
-        employee_search_clause()
+        employee_search_clause(),
+        query.status.sql_clause()
     ))
     .bind(pattern)
     .bind(query.limit)

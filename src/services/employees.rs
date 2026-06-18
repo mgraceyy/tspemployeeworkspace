@@ -31,7 +31,7 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
 pub async fn find_by_code(pool: &PgPool, employee_code: &str) -> AppResult<Option<Employee>> {
     let employee = sqlx::query_as::<_, Employee>(
         "SELECT id, employee_code, full_name, pin_hash, role, manager_id, is_active,
-                must_change_pin, created_at
+                must_change_pin, session_version, created_at
          FROM employees
          WHERE employee_code = $1 AND is_active = TRUE",
     )
@@ -45,7 +45,7 @@ pub async fn find_by_code(pool: &PgPool, employee_code: &str) -> AppResult<Optio
 pub async fn find_by_id(pool: &PgPool, employee_id: Uuid) -> AppResult<Option<Employee>> {
     let employee = sqlx::query_as::<_, Employee>(
         "SELECT id, employee_code, full_name, pin_hash, role, manager_id, is_active,
-                must_change_pin, created_at
+                must_change_pin, session_version, created_at
          FROM employees
          WHERE id = $1",
     )
@@ -182,18 +182,36 @@ pub async fn set_employee_active(
 pub async fn reset_employee_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str) -> AppResult<()> {
     validate_pin(new_pin)?;
     let pin_hash = hash_pin(new_pin)?;
-    let updated =
-        sqlx::query("UPDATE employees SET pin_hash = $2, must_change_pin = TRUE WHERE id = $1")
-            .bind(employee_id)
-            .bind(pin_hash)
-            .execute(pool)
-            .await
-            .map_err(|e| AppError::Internal(e.into()))?;
+    let updated = sqlx::query(
+        "UPDATE employees
+         SET pin_hash = $2, must_change_pin = TRUE, session_version = session_version + 1
+         WHERE id = $1",
+    )
+    .bind(employee_id)
+    .bind(pin_hash)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
     Ok(())
+}
+
+pub async fn bump_session_version(pool: &PgPool, employee_id: Uuid) -> AppResult<i32> {
+    let version: i32 = sqlx::query_scalar(
+        "UPDATE employees
+         SET session_version = session_version + 1
+         WHERE id = $1
+         RETURNING session_version",
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?
+    .ok_or(AppError::NotFound)?;
+    Ok(version)
 }
 
 pub async fn change_own_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str) -> AppResult<()> {

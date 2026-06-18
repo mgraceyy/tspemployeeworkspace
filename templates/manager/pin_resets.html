@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>PIN Reset Requests</h1>
+  <p class="muted">Approve with a temporary PIN — the employee must change it on next login.</p>
+</section>
+
+{% if content.requests %}
+<section class="stack">
+  {% for req in content.requests %}
+  <article class="panel stack">
+    <h2>{{ req.full_name }} <span class="muted">({{ req.employee_code }})</span></h2>
+    <p class="muted">Requested {{ req.requested_at }}</p>
+    {% if req.reason %}
+    <p><strong>Reason:</strong> {{ req.reason }}</p>
+    {% endif %}
+    <form method="post" action="/manager/pin-resets/{{ req.id }}/approve" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>Temporary PIN (4–6 digits)
+        <input type="password" name="temp_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}">
+      </label>
+      <button type="submit" class="btn btn-primary">Approve &amp; Set PIN</button>
+    </form>
+    <form method="post" action="/manager/pin-resets/{{ req.id }}/deny" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>Denial reason
+        <input type="text" name="review_note" required placeholder="Why this request was denied">
+      </label>
+      <button type="submit" class="btn btn-danger">Deny</button>
+    </form>
+  </article>
+  {% endfor %}
+</section>
+{% else %}
+<section class="panel">
+  <p class="muted">No pending PIN reset requests.</p>
+</section>
+{% endif %}
+{% endblock %}

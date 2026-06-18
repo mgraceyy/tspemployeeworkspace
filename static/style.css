@@ -234,6 +234,11 @@ textarea {
 .profile-dl div { display: grid; gap: 0.15rem; }
 .profile-dl dt { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
 .profile-dl dd { margin: 0; }
+.profile-photo { object-fit: cover; border-radius: 50%; border: 2px solid var(--border); display: block; margin-bottom: 0.75rem; }
+.tab-nav { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.tab-nav a { padding: 0.35rem 0.75rem; border-radius: 999px; text-decoration: none; background: #e8eef7; color: inherit; font-size: 0.9rem; }
+.tab-nav a.active { background: var(--accent); color: #fff; }
+.inline-form { display: inline; }
 .eod-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem; }
 .eod-card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
 .eod-task-list { margin: 0.5rem 0 0; padding-left: 1.25rem; }

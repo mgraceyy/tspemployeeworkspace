@@ -7,6 +7,22 @@
 
 <div class="grid-2">
   <section class="panel">
+    <h2>Profile Photo</h2>
+    {% if content.profile.has_photo %}
+    <img src="/me/profile/photo" alt="Profile photo" class="profile-photo" width="120" height="120">
+    {% else %}
+    <p class="muted">No photo uploaded yet.</p>
+    {% endif %}
+    <form method="post" action="/me/profile/photo/upload" enctype="multipart/form-data" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>Upload photo (JPG, PNG, or WEBP)
+        <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required>
+      </label>
+      <button type="submit" class="btn">Upload Photo</button>
+    </form>
+  </section>
+
+  <section class="panel">
     <h2>Contact (editable)</h2>
     <form method="post" action="/me/profile" class="stack">
       {% include "partials/csrf_field.html" %}
@@ -19,7 +35,9 @@
       <button type="submit" class="btn btn-primary">Save Contact Info</button>
     </form>
   </section>
+</div>
 
+<div class="grid-2">
   <section class="panel">
     <h2>Personal Information</h2>
     <dl class="profile-dl">
@@ -30,16 +48,41 @@
     </dl>
     <p class="hint">Contact your admin to update personal information.</p>
   </section>
+
+  <section class="panel">
+    <h2>Employment (read-only)</h2>
+    <dl class="profile-dl">
+      <div><dt>Job Title</dt><dd>{{ content.profile.job_title or "—" }}</dd></div>
+      <div><dt>Department</dt><dd>{{ content.profile.department or "—" }}</dd></div>
+      <div><dt>Date Hired</dt><dd>{{ content.profile.date_hired or "—" }}</dd></div>
+      <div><dt>Employment Type</dt><dd>{{ content.profile.employment_type or "—" }}</dd></div>
+      <div><dt>Work Location</dt><dd>{{ content.profile.work_location or "—" }}</dd></div>
+    </dl>
+  </section>
 </div>
 
-<section class="panel">
-  <h2>Employment Details</h2>
-  <dl class="profile-dl">
-    <div><dt>Job Title</dt><dd>{{ content.profile.job_title or "—" }}</dd></div>
-    <div><dt>Department</dt><dd>{{ content.profile.department or "—" }}</dd></div>
-    <div><dt>Employment Type</dt><dd>{{ content.profile.employment_type or "—" }}</dd></div>
-    <div><dt>Date Hired</dt><dd>{{ content.profile.date_hired or "—" }}</dd></div>
-    <div><dt>Work Location</dt><dd>{{ content.profile.work_location or "—" }}</dd></div>
-  </dl>
+<section class="panel stack">
+  <h2>Account Security</h2>
+  <p><a href="/change-pin" class="btn">Change PIN</a></p>
+  <form method="post" action="/me/profile/logout-everywhere" class="inline-form"
+    onsubmit="return confirm('Sign out on all devices? You will need to sign in again here too.');">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn">Log Out Everywhere</button>
+  </form>
+  {% if content.pending_pin_reset %}
+  <p class="muted">PIN reset request pending — waiting for manager or admin review.</p>
+  <form method="post" action="/me/profile/pin-reset/{{ content.pending_pin_reset_id }}/cancel">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn">Cancel PIN Reset Request</button>
+  </form>
+  {% else %}
+  <form method="post" action="/me/profile/request-pin-reset" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>Request admin PIN reset (optional reason)
+      <textarea name="reason" rows="2" placeholder="e.g. Need a new PIN issued by admin"></textarea>
+    </label>
+    <button type="submit" class="btn">Request PIN Reset</button>
+  </form>
+  {% endif %}
 </section>
 {% endblock %}

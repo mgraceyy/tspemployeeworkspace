@@ -57,8 +57,16 @@
 </div>
 
 <section class="panel">
-  <h2>All Employees</h2>
+  <h2>Employees</h2>
+  <nav class="tab-nav" aria-label="Employee list filter">
+    <a href="/admin/employees" class="{% if not content.show_archived and not content.show_all %}active{% endif %}">Active</a>
+    <a href="/admin/employees?status=archived" class="{% if content.show_archived %}active{% endif %}">Archived</a>
+    <a href="/admin/employees?status=all" class="{% if content.show_all %}active{% endif %}">All</a>
+  </nav>
   <form method="get" action="/admin/employees" class="search-bar stack">
+    {% if content.status_filter != "active" %}
+    <input type="hidden" name="status" value="{{ content.status_filter }}">
+    {% endif %}
     <label>
       Search
       <input type="search" name="q" value="{{ content.pagination.search_query }}" placeholder="Code, name, or department">

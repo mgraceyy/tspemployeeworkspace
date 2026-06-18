@@ -16,6 +16,7 @@ pub mod notifications;
 pub mod onboarding;
 pub mod ot;
 pub mod pagination;
+pub mod pin_reset;
 pub mod payroll;
 pub mod payroll_controls;
 pub mod reports;

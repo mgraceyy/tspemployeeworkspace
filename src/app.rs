@@ -33,7 +33,11 @@ where
             "/change-pin",
             get(auth::change_pin_page).post(auth::change_pin_submit),
         )
-        .route("/logout", post(auth::logout));
+        .route("/logout", post(auth::logout))
+        .route(
+            "/login/request-pin-reset",
+            get(auth::pin_reset_request_page).post(auth::pin_reset_request_submit),
+        );
 
     let employee_routes = Router::new()
         .route("/", get(employee::home))
@@ -56,6 +60,27 @@ where
         .route(
             "/me/profile",
             get(profile::my_profile).post(profile::update_my_profile),
+        )
+        .route("/me/profile/photo", get(profile::my_profile_photo))
+        .route(
+            "/me/profile/photo/upload",
+            post(profile::upload_my_profile_photo),
+        )
+        .route(
+            "/me/profile/logout-everywhere",
+            post(profile::logout_everywhere),
+        )
+        .route(
+            "/me/profile/request-pin-reset",
+            post(profile::request_pin_reset),
+        )
+        .route(
+            "/me/profile/pin-reset/{request_id}/cancel",
+            post(profile::cancel_pin_reset),
+        )
+        .route(
+            "/employees/{employee_id}/photo",
+            get(profile::employee_profile_photo),
         )
         .route("/me/requirements", get(requirements::my_requirements))
         .route(
@@ -112,6 +137,15 @@ where
             get(eod::manager_export_weekly_csv),
         )
         .route("/manager/eod/{employee_id}", get(eod::manager_view_eod))
+        .route("/manager/pin-resets", get(manager::pin_resets_page))
+        .route(
+            "/manager/pin-resets/{request_id}/approve",
+            post(manager::approve_pin_reset),
+        )
+        .route(
+            "/manager/pin-resets/{request_id}/deny",
+            post(manager::deny_pin_reset),
+        )
         .route("/manager/leave", get(leave::manager_leave_page))
         .route(
             "/manager/leave/{request_id}/review",

@@ -36,6 +36,16 @@
       <label>Work Location <input type="text" name="work_location" value="{{ content.profile.work_location }}"></label>
     </div>
   </section>
+  <section class="panel">
+    <h2>Payroll Identity</h2>
+    <p class="hint">Used for bank CSV and government reporting (Phase 6). Admin-only.</p>
+    <div class="grid-2">
+      <label>Bank Account <input type="text" name="bank_account" value="{{ content.profile.bank_account }}" placeholder="Account number"></label>
+      <label>TIN <input type="text" name="tin" value="{{ content.profile.tin }}"></label>
+      <label>SSS Number <input type="text" name="sss_number" value="{{ content.profile.sss_number }}"></label>
+      <label>PhilHealth Number <input type="text" name="philhealth_number" value="{{ content.profile.philhealth_number }}"></label>
+    </div>
+  </section>
   <button type="submit" class="btn btn-primary">Save Profile</button>
 </form>
 {% endblock %}

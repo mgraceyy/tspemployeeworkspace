@@ -32,6 +32,7 @@ pub struct Employee {
     pub manager_id: Option<Uuid>,
     pub is_active: bool,
     pub must_change_pin: bool,
+    pub session_version: i32,
     pub created_at: OffsetDateTime,
 }
 
