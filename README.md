@@ -380,7 +380,7 @@ npx playwright install chromium
 E2E_BASE_URL=http://127.0.0.1:8080 npm test
 ```
 
-E2E specs cover login, health/metrics, auth flows, manager actions, requirements upload, admin employee creation, authorization boundaries, closed pay-period blocking, and the payroll happy path (close period → draft → finalize → payslips).
+E2E specs cover login, health/metrics, auth flows, manager actions, requirements upload, admin employee creation, authorization boundaries, closed pay-period blocking, and the payroll happy path (close period → draft → finalize → payslips, CSV/bank/journal/PDF exports). **v0.3.0** specs add PIN reset (profile + login page), profile photo upload, and compensation CSV import (`pin-reset.spec.ts`, `profile.spec.ts`, `compensation-import.spec.ts`).
 
 ## Contributing
 

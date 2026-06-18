@@ -56,7 +56,30 @@ test.describe("payroll flows", () => {
       page.once("dialog", (dialog) => dialog.accept());
       await finalizeButton.click();
       await expect(page.getByText(/finalized|gross pay and deductions are locked/i)).toBeVisible();
-      await expect(page.getByRole("link", { name: /download payroll csv/i })).toBeVisible();
+      await expect(page.getByRole("link", { name: /payroll csv/i })).toBeVisible();
+
+      const payrollCsvHref = await page
+        .getByRole("link", { name: /payroll csv/i })
+        .getAttribute("href");
+      const payrollCsv = await page.request.get(payrollCsvHref!);
+      expect(payrollCsv.ok()).toBeTruthy();
+      expect(await payrollCsv.text()).toContain("Allowances");
+
+      const bankHref = await page
+        .getByRole("link", { name: /bank upload csv/i })
+        .getAttribute("href");
+      expect((await page.request.get(bankHref!)).ok()).toBeTruthy();
+
+      const journalHref = await page
+        .getByRole("link", { name: /journal csv/i })
+        .getAttribute("href");
+      expect((await page.request.get(journalHref!)).ok()).toBeTruthy();
+
+      const pdfHref = await page.locator('a[href*="payslip.pdf"]').first().getAttribute("href");
+      const pdfResponse = await page.request.get(pdfHref!);
+      expect(pdfResponse.ok()).toBeTruthy();
+      expect(pdfResponse.headers()["content-type"]).toContain("application/pdf");
+      expect(Buffer.from(await pdfResponse.body()).subarray(0, 4).toString()).toBe("%PDF");
     }
 
     await page.locator('form[action="/logout"] button').click();
@@ -64,8 +87,17 @@ test.describe("payroll flows", () => {
     await loginAs(page, EMPLOYEE_CODE, EMPLOYEE_PIN);
     await page.goto("/me/payslips");
     await expect(page.getByRole("heading", { name: /my payslips/i })).toBeVisible();
-    if (await page.getByText(EMPLOYEE_CODE).isVisible()) {
-      await expect(page.getByRole("link", { name: /view/i }).first()).toBeVisible();
+    const viewLink = page.getByRole("link", { name: /^view$/i }).first();
+    if (await viewLink.isVisible()) {
+      await viewLink.click();
+      await expect(page.getByRole("heading", { name: /payslip/i })).toBeVisible();
+
+      const employeePdfHref = await page
+        .getByRole("link", { name: /download pdf/i })
+        .getAttribute("href");
+      const employeePdf = await page.request.get(employeePdfHref!);
+      expect(employeePdf.ok()).toBeTruthy();
+      expect(employeePdf.headers()["content-type"]).toContain("application/pdf");
     }
   });
 });
