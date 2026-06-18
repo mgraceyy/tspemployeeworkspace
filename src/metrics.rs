@@ -12,6 +12,9 @@ pub struct AppMetrics {
     http_duration_buckets: [AtomicU64; DURATION_BUCKET_BOUNDS.len() + 1],
     http_duration_sum_micros: AtomicU64,
     http_duration_count: AtomicU64,
+    payroll_runs_created_total: AtomicU64,
+    payroll_runs_finalized_total: AtomicU64,
+    payroll_runs_voided_total: AtomicU64,
 }
 
 impl AppMetrics {
@@ -21,6 +24,21 @@ impl AppMetrics {
 
     pub fn record_error(&self) {
         self.http_errors_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_payroll_run_created(&self) {
+        self.payroll_runs_created_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_payroll_run_finalized(&self) {
+        self.payroll_runs_finalized_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_payroll_run_voided(&self) {
+        self.payroll_runs_voided_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_request_duration(&self, duration_secs: f64) {
@@ -37,11 +55,14 @@ impl AppMetrics {
         self.http_duration_buckets[DURATION_BUCKET_BOUNDS.len()].fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn render_prometheus(&self) -> String {
+    pub fn render_prometheus(&self, db_pool_size: u32, db_pool_idle: u32) -> String {
         let requests = self.http_requests_total.load(Ordering::Relaxed);
         let errors = self.http_errors_total.load(Ordering::Relaxed);
         let count = self.http_duration_count.load(Ordering::Relaxed);
         let sum_secs = self.http_duration_sum_micros.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+        let payroll_created = self.payroll_runs_created_total.load(Ordering::Relaxed);
+        let payroll_finalized = self.payroll_runs_finalized_total.load(Ordering::Relaxed);
+        let payroll_voided = self.payroll_runs_voided_total.load(Ordering::Relaxed);
 
         let mut out = String::from(
             "# HELP dtr_http_requests_total Total HTTP requests handled by the app\n\
@@ -73,6 +94,35 @@ impl AppMetrics {
             "dtr_http_request_duration_seconds_sum {sum_secs}\n\
              dtr_http_request_duration_seconds_count {count}\n"
         ));
+        out.push_str(
+            "# HELP dtr_payroll_runs_created_total Draft payroll runs created\n\
+             # TYPE dtr_payroll_runs_created_total counter\n",
+        );
+        out.push_str(&format!(
+            "dtr_payroll_runs_created_total {payroll_created}\n"
+        ));
+        out.push_str(
+            "# HELP dtr_payroll_runs_finalized_total Payroll runs finalized\n\
+             # TYPE dtr_payroll_runs_finalized_total counter\n",
+        );
+        out.push_str(&format!(
+            "dtr_payroll_runs_finalized_total {payroll_finalized}\n"
+        ));
+        out.push_str(
+            "# HELP dtr_payroll_runs_voided_total Draft payroll runs voided\n\
+             # TYPE dtr_payroll_runs_voided_total counter\n",
+        );
+        out.push_str(&format!("dtr_payroll_runs_voided_total {payroll_voided}\n"));
+        out.push_str(
+            "# HELP dtr_db_pool_connections Current database pool connection count\n\
+             # TYPE dtr_db_pool_connections gauge\n",
+        );
+        out.push_str(&format!("dtr_db_pool_connections {db_pool_size}\n"));
+        out.push_str(
+            "# HELP dtr_db_pool_idle_connections Idle database pool connections\n\
+             # TYPE dtr_db_pool_idle_connections gauge\n",
+        );
+        out.push_str(&format!("dtr_db_pool_idle_connections {db_pool_idle}\n"));
         out
     }
 }
@@ -87,9 +137,10 @@ mod tests {
         metrics.record_request();
         metrics.record_request();
         metrics.record_error();
-        let rendered = metrics.render_prometheus();
+        let rendered = metrics.render_prometheus(3, 2);
         assert!(rendered.contains("dtr_http_requests_total 2"));
         assert!(rendered.contains("dtr_http_errors_total 1"));
+        assert!(rendered.contains("dtr_db_pool_connections 3"));
     }
 
     #[test]
@@ -97,9 +148,21 @@ mod tests {
         let metrics = AppMetrics::default();
         metrics.record_request_duration(0.002);
         metrics.record_request_duration(0.05);
-        let rendered = metrics.render_prometheus();
+        let rendered = metrics.render_prometheus(0, 0);
         assert!(rendered.contains("dtr_http_request_duration_seconds_bucket"));
         assert!(rendered.contains("dtr_http_request_duration_seconds_count 2"));
         assert!(rendered.contains("dtr_http_request_duration_seconds_sum"));
+    }
+
+    #[test]
+    fn payroll_counters_render() {
+        let metrics = AppMetrics::default();
+        metrics.record_payroll_run_created();
+        metrics.record_payroll_run_finalized();
+        metrics.record_payroll_run_voided();
+        let rendered = metrics.render_prometheus(1, 1);
+        assert!(rendered.contains("dtr_payroll_runs_created_total 1"));
+        assert!(rendered.contains("dtr_payroll_runs_finalized_total 1"));
+        assert!(rendered.contains("dtr_payroll_runs_voided_total 1"));
     }
 }

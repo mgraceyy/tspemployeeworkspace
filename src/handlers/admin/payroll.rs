@@ -151,6 +151,7 @@ pub async fn create_payroll_run_action(
         form.note.as_deref(),
     )
     .await?;
+    state.metrics.record_payroll_run_created();
 
     log_action(
         &state.pool,
@@ -387,6 +388,7 @@ pub async fn void_payroll_run_action(
 ) -> AppResult<Redirect> {
     let run = get_run(&state.pool, run_id).await?;
     void_draft_run(&state.pool, run_id).await?;
+    state.metrics.record_payroll_run_voided();
 
     log_action(
         &state.pool,
@@ -417,6 +419,7 @@ pub async fn finalize_payroll_run_action(
 ) -> AppResult<Redirect> {
     let run = get_run(&state.pool, run_id).await?;
     finalize_run(&state.pool, run_id, user.employee_id).await?;
+    state.metrics.record_payroll_run_finalized();
 
     log_action(
         &state.pool,

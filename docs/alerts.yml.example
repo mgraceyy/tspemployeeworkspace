@@ -1,0 +1,32 @@
+# Example Prometheus alert rules for TalaSora Prime DTR.
+# Pair with docs/prometheus.yml.example.
+
+groups:
+  - name: dtr
+    rules:
+      - alert: DtrHttpErrorsElevated
+        expr: increase(dtr_http_errors_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: DTR is returning HTTP 5xx responses
+          description: "{{ $value }} server errors in the last 10 minutes."
+
+      - alert: DtrDbPoolSaturated
+        expr: dtr_db_pool_idle_connections == 0 and dtr_db_pool_connections > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: DTR database pool has no idle connections
+          description: All {{ $value }} pool connections are in use — consider raising DATABASE_MAX_CONNECTIONS or scaling down concurrent load.
+
+      - alert: DtrPayrollFinalizeSpike
+        expr: increase(dtr_payroll_runs_finalized_total[1h]) > 5
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: Unusual payroll finalize activity
+          description: "{{ $value }} payroll runs finalized in the last hour."

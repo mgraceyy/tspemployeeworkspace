@@ -461,6 +461,8 @@ async fn metrics_endpoint_counts_all_routes() {
 
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("dtr_http_requests_total"));
+    assert!(body.contains("dtr_db_pool_connections"));
+    assert!(body.contains("dtr_payroll_runs_created_total"));
     assert!(
         metrics_request_count(&body) >= 4,
         "expected health/static/metrics to be counted: {body}"

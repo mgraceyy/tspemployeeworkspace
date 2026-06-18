@@ -83,6 +83,9 @@ services:
       BACKUP_DIR: /backups
       UPLOAD_DIR: /data/uploads
       RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_STATUS_FILE: /backups/last-backup.status
+      # Optional: POST failure notifications to Slack/Discord/etc.
+      # BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
     volumes:
       - ./backups:/backups
       - uploads:/data/uploads:ro

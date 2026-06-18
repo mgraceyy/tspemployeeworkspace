@@ -164,7 +164,7 @@ templates/     MiniJinja HTML templates
 static/        CSS and static assets
 scripts/       Database and uploads backup/restore scripts
 e2e/           Playwright browser tests
-docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md)
+docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md), Prometheus scrape + alert examples
 ```
 
 ## Payroll roadmap
@@ -186,6 +186,8 @@ Authenticated sessions are **revalidated against the database** on each request:
 - Use a strong, unique `SESSION_SECRET` (64+ characters).
 - Put the app behind HTTPS and set `APP_ENV=production` or `SESSION_SECURE_COOKIES=true`.
 - When using a reverse proxy, set `TRUST_PROXY_HEADERS=true` so POST/login rate limiting uses the real client IP. The proxy must **overwrite** `X-Real-IP` and `X-Forwarded-For` with the client address (`$remote_addr` in nginx, `{remote_host}` in Caddy) — do not forward client-supplied `X-Forwarded-For` chains. See `docs/nginx.conf.example` and `docs/Caddyfile`.
+- **Metrics:** `/metrics` exposes HTTP counters, DB pool gauges, and payroll run counters (`dtr_payroll_runs_*`). Use `docs/prometheus.yml.example` and `docs/alerts.yml.example` with your Prometheus stack. Set `METRICS_TOKEN` in production.
+- **Backups:** the `ops` profile writes `last-backup.status` under `./backups/` and can POST to `BACKUP_WEBHOOK_URL` on failure.
 - **Production Compose:** copy `.env.prod.example` to `.env`, set strong secrets, then:
   ```bash
   docker compose -f docker-compose.prod.yml --profile proxy up -d
@@ -317,14 +319,15 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 |-----|----------------|
 | **test** | `cargo fmt`, Clippy (`-D warnings`), `cargo audit`, `cargo deny`, `cargo build`, `cargo test` with `RUST_TEST_THREADS=1` and a matrix of `SHARED_RATE_LIMITS=false/true` against PostgreSQL 16 |
 | **docker** | Builds the image; smoke-tests `/health`, `/login`, `/static/style.css`, and `/metrics` |
-| **e2e** | Builds the app with `SEED_DEFAULT_ADMIN=true` and `SEED_E2E_FIXTURES=true`, runs Playwright (`npm ci` in `e2e/`) |
+| **e2e** | Runs Playwright against the **Docker image** (same artifact path as the docker job), matrixed with `SHARED_RATE_LIMITS=false/true` |
+| **release** | On version tags (`v*`), runs tests, builds a release binary and Docker image, and attaches `dtr-<tag>-docker-image.tar.gz` to the GitHub Release |
 | **verify-backup** | Migrates via `dtr-migrate`, backs up and verifies SQL, runs a **database restore drill**, an **uploads restore drill**, then a **full DR drill** (start app on restored DB + uploads, curl `/health`) |
 
 The audit/deny steps ignore [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071) (`rsa` via `sqlx`) — no upstream fix is available; see `.cargo/audit.toml` and `deny.toml`.
 
 ## Tests
 
-The suite has **161+ Rust tests** across unit, integration, and HTTP layers.
+The suite has **162+ Rust tests** across unit, integration, and HTTP layers.
 
 Unit tests (no database required):
 

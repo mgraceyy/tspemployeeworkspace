@@ -41,7 +41,9 @@ pub async fn prometheus_metrics(
         }
     }
 
-    let body = state.metrics.render_prometheus();
+    let body = state
+        .metrics
+        .render_prometheus(state.pool.size(), state.pool.num_idle() as u32);
     (
         StatusCode::OK,
         [(

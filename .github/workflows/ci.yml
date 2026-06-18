@@ -100,8 +100,9 @@ jobs:
       - name: Smoke test container
         run: |
           docker run -d --name dtr-ci \
+            --add-host=host.docker.internal:host-gateway \
             -p 18080:8080 \
-            -e DATABASE_URL \
+            -e DATABASE_URL=postgres://dtr:dtr@host.docker.internal:5432/dtr \
             -e SESSION_SECRET \
             -e SEED_DEFAULT_ADMIN \
             dtr:ci
@@ -118,11 +119,24 @@ jobs:
           curl -sf http://localhost:18080/login | grep -qi "login"
           curl -sf -o /dev/null -w "%{http_code}" http://localhost:18080/static/style.css | grep -q "200"
           curl -sf http://localhost:18080/metrics | grep -q "dtr_http_requests_total"
+          curl -sf http://localhost:18080/metrics | grep -q "dtr_db_pool_connections"
+          curl -sf http://localhost:18080/metrics | grep -q "dtr_payroll_runs_created_total"
+          for path in /admin/payroll /me/payslips; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:18080${path}")
+            if [[ "$code" != "303" && "$code" != "302" && "$code" != "307" ]]; then
+              echo "Expected auth redirect for ${path}, got ${code}"
+              docker logs dtr-ci
+              exit 1
+            fi
+          done
           docker stop dtr-ci
 
   e2e:
     runs-on: ubuntu-latest
-    needs: test
+    needs: docker
+    strategy:
+      matrix:
+        shared_rate_limits: ["false", "true"]
 
     services:
       postgres:
@@ -144,28 +158,35 @@ jobs:
       SESSION_SECRET: ci-test-secret-at-least-64-characters-long-for-signed-cookies-ok
       SEED_DEFAULT_ADMIN: "true"
       SEED_E2E_FIXTURES: "true"
+      SHARED_RATE_LIMITS: ${{ matrix.shared_rate_limits }}
       E2E_BASE_URL: http://127.0.0.1:8080
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
 
-      - name: Build and start app
+      - name: Build and start Docker container
         run: |
-          cargo build --release
-          ./target/release/dtr &
+          docker build -t dtr:e2e .
+          docker run -d --name dtr-e2e \
+            --add-host=host.docker.internal:host-gateway \
+            -p 8080:8080 \
+            -e DATABASE_URL=postgres://dtr:dtr@host.docker.internal:5432/dtr \
+            -e SESSION_SECRET \
+            -e SEED_DEFAULT_ADMIN \
+            -e SEED_E2E_FIXTURES \
+            -e SHARED_RATE_LIMITS \
+            dtr:e2e
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8080/health; then
               exit 0
             fi
             sleep 2
           done
+          docker logs dtr-e2e
           exit 1
 
       - name: Install Playwright and run E2E tests
@@ -174,6 +195,10 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
           npm test
+
+      - name: Stop E2E container
+        if: always()
+        run: docker rm -f dtr-e2e || true
 
   verify-backup:
     runs-on: ubuntu-latest
