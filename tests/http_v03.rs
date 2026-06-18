@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use dtr::models::{AttendanceStatus, UserRole};
 use dtr::services::attendance::mark_absence_for_employee;
 use dtr::services::compensation::UpsertProfileInput;
-use dtr::services::employees::{create_employee, find_by_id};
+use dtr::services::employees::find_by_id;
 use dtr::services::payroll::list_deduction_types;
 use dtr::services::payroll_controls::close_pay_period;
 use dtr::services::profile::get_profile;
@@ -15,8 +15,8 @@ use time::{Date, Month};
 use uuid::Uuid;
 
 use common::{
-    extract_csrf_token, get, get_bytes, login_as, post_form, post_multipart_field, test_app,
-    test_pool,
+    create_ready_employee, extract_csrf_token, get, get_bytes, login_as, post_form,
+    post_multipart_field, test_app, test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -114,7 +114,7 @@ async fn compensation_import_preview_and_apply_via_http() {
 
     let admin_code = unique_code("IMAD");
     let emp_code = unique_code("IMEM");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Import HTTP Admin",
@@ -124,7 +124,7 @@ async fn compensation_import_preview_and_apply_via_http() {
     )
     .await
     .expect("admin");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &emp_code,
         "Import HTTP Employee",
@@ -192,7 +192,7 @@ async fn admin_can_manage_deduction_types_via_http() {
         "E2E_{}",
         &Uuid::new_v4().simple().to_string()[..6].to_uppercase()
     );
-    let _admin = create_employee(
+    let _admin = create_ready_employee(
         &pool,
         &admin_code,
         "Deduction Type HTTP Admin",
@@ -248,7 +248,7 @@ async fn employee_can_upload_and_view_profile_photo_via_http() {
     };
 
     let code = unique_code("PHOT");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &code,
         "Photo HTTP Employee",
@@ -299,7 +299,7 @@ async fn logout_everywhere_invalidates_session_via_http() {
     };
 
     let code = unique_code("LOUT");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &code,
         "Logout Everywhere Employee",
@@ -339,7 +339,7 @@ async fn employee_can_download_payslip_pdf_via_http() {
 
     let admin_code = unique_code("PDFA");
     let emp_code = unique_code("PDFE");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Employee PDF Admin",
@@ -349,7 +349,7 @@ async fn employee_can_download_payslip_pdf_via_http() {
     )
     .await
     .expect("admin");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &emp_code,
         "Employee PDF Employee",
@@ -455,7 +455,7 @@ async fn manager_can_approve_pin_reset_via_http() {
 
     let mgr_code = unique_code("PRMG");
     let emp_code = unique_code("PREM");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "PIN Reset HTTP Manager",
@@ -465,7 +465,7 @@ async fn manager_can_approve_pin_reset_via_http() {
     )
     .await
     .expect("manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "PIN Reset HTTP Employee",
@@ -531,7 +531,7 @@ async fn manager_can_deny_pin_reset_via_http() {
 
     let mgr_code = unique_code("PRDN");
     let emp_code = unique_code("PRDE");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "PIN Deny HTTP Manager",
@@ -541,7 +541,7 @@ async fn manager_can_deny_pin_reset_via_http() {
     )
     .await
     .expect("manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "PIN Deny HTTP Employee",
@@ -613,7 +613,7 @@ async fn admin_can_save_deduction_defaults_via_http() {
 
     let admin_code = unique_code("DDAD");
     let emp_code = unique_code("DDEM");
-    let _admin = create_employee(
+    let _admin = create_ready_employee(
         &pool,
         &admin_code,
         "Deduction Defaults HTTP Admin",
@@ -623,7 +623,7 @@ async fn admin_can_save_deduction_defaults_via_http() {
     )
     .await
     .expect("admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Deduction Defaults HTTP Employee",
@@ -679,7 +679,7 @@ async fn admin_can_save_payroll_identity_fields_via_http() {
 
     let admin_code = unique_code("IDAD");
     let emp_code = unique_code("IDEM");
-    let _admin = create_employee(
+    let _admin = create_ready_employee(
         &pool,
         &admin_code,
         "Identity HTTP Admin",
@@ -689,7 +689,7 @@ async fn admin_can_save_payroll_identity_fields_via_http() {
     )
     .await
     .expect("admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Identity HTTP Employee",
@@ -732,7 +732,7 @@ async fn draft_payroll_run_shows_stale_attendance_warning_via_http() {
 
     let admin_code = unique_code("STAD");
     let emp_code = unique_code("STEM");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Stale Warning HTTP Admin",
@@ -742,7 +742,7 @@ async fn draft_payroll_run_shows_stale_attendance_warning_via_http() {
     )
     .await
     .expect("admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Stale Warning HTTP Employee",

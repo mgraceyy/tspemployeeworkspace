@@ -9,8 +9,8 @@ use dtr::services::timezone::company_date_now;
 use uuid::Uuid;
 
 use common::{
-    extract_csrf_token, get, get_bytes, get_with_headers, header_value, login_as, post_form,
-    post_multipart, test_app, test_pool,
+    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, header_value,
+    login_as, post_form, post_multipart, test_app, test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -104,7 +104,7 @@ async fn employee_cannot_access_admin_pages() {
     };
 
     let code = unique_code("HTTP");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "HTTP Test User",
@@ -133,7 +133,7 @@ async fn login_with_valid_credentials_redirects_home() {
     };
 
     let code = unique_code("LOGN");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &code,
         "Login HTTP Test",
@@ -162,7 +162,7 @@ async fn employee_cannot_download_admin_payroll_export() {
     };
 
     let code = unique_code("EXPR");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Export Block Test",
@@ -190,7 +190,7 @@ async fn admin_payroll_export_returns_csv() {
     };
 
     let code = unique_code("ADMN");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Admin Export Test",
@@ -220,7 +220,7 @@ async fn closed_pay_period_blocks_clock_in_via_http() {
     };
 
     let code = unique_code("CLSD");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Closed Period Test",
@@ -283,7 +283,7 @@ async fn manager_cannot_access_admin_pages_or_exports() {
     };
 
     let code = unique_code("MNGR");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Manager Boundary Test",
@@ -318,7 +318,7 @@ async fn login_locks_account_after_repeated_failures() {
     };
 
     let code = unique_code("LOCK");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Login Lock Test",
@@ -440,7 +440,7 @@ async fn requirement_upload_rejects_mismatched_content_via_http() {
     };
 
     let code = unique_code("UPLD");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Upload HTTP Test",
@@ -530,7 +530,7 @@ async fn admin_payroll_export_returns_xlsx() {
     };
 
     let code = unique_code("XLSX");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "XLSX Export Test",
@@ -564,7 +564,7 @@ async fn requirement_upload_accepts_valid_pdf_via_http() {
     };
 
     let code = unique_code("PDFU");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "PDF Upload Test",
@@ -627,7 +627,7 @@ async fn requirement_upload_rejects_generic_zip_as_docx_via_http() {
     };
 
     let code = unique_code("DOCX");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "DOCX Upload Test",

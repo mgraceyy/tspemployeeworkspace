@@ -2,13 +2,15 @@ mod common;
 
 use axum::http::StatusCode;
 use dtr::models::{LeaveRequestStatus, UserRole};
-use dtr::services::employees::create_employee;
+
 use dtr::services::settings::get_settings;
 use dtr::services::timezone::{company_date_now, format_date};
 use time::{Date, Month};
 use uuid::Uuid;
 
-use common::{extract_csrf_token, get, login_as, post_form, test_app, test_pool};
+use common::{
+    create_ready_employee, extract_csrf_token, get, login_as, post_form, test_app, test_pool,
+};
 
 const TEST_PIN: &str = "482915";
 
@@ -48,7 +50,7 @@ async fn employee_can_submit_and_cancel_leave_via_http() {
     };
 
     let code = unique_code("LVEM");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Leave Submit Test",
@@ -115,7 +117,7 @@ async fn manager_can_approve_leave_via_http() {
 
     let mgr_code = unique_code("LVMA");
     let emp_code = unique_code("LVMB");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "Leave Manager",
@@ -125,7 +127,7 @@ async fn manager_can_approve_leave_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Leave Employee",
@@ -188,7 +190,7 @@ async fn admin_can_close_and_reopen_pay_period_via_http() {
     };
 
     let code = unique_code("PPAD");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Pay Period Admin",
@@ -253,7 +255,7 @@ async fn manager_can_submit_new_correction_via_http() {
 
     let mgr_code = unique_code("CRMG");
     let emp_code = unique_code("CRME");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "Correction Manager",
@@ -263,7 +265,7 @@ async fn manager_can_submit_new_correction_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Correction Employee",

@@ -2,7 +2,7 @@ mod common;
 
 use axum::http::StatusCode;
 use dtr::models::UserRole;
-use dtr::services::employees::create_employee;
+
 use dtr::services::payroll_controls::close_pay_period;
 use dtr::services::reports::current_pay_period;
 use dtr::services::settings::get_settings;
@@ -10,7 +10,9 @@ use dtr::services::timezone::format_date;
 use time::{Date, Month};
 use uuid::Uuid;
 
-use common::{extract_csrf_token, get, login_as, post_form, test_app, test_pool};
+use common::{
+    create_ready_employee, extract_csrf_token, get, login_as, post_form, test_app, test_pool,
+};
 
 const TEST_PIN: &str = "482915";
 
@@ -88,7 +90,7 @@ async fn employee_and_manager_forbidden_on_admin_payroll() {
 
     let emp_code = unique_code("PYEF");
     let mgr_code = unique_code("PYMF");
-    create_employee(
+    create_ready_employee(
         &pool,
         &emp_code,
         "Payroll Forbidden Employee",
@@ -98,7 +100,7 @@ async fn employee_and_manager_forbidden_on_admin_payroll() {
     )
     .await
     .expect("employee");
-    create_employee(
+    create_ready_employee(
         &pool,
         &mgr_code,
         "Payroll Forbidden Manager",
@@ -131,7 +133,7 @@ async fn admin_can_void_payroll_run_via_http() {
     };
 
     let admin_code = unique_code("PYVD");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Void HTTP Admin",
@@ -209,7 +211,7 @@ async fn reopen_blocked_by_draft_payroll_via_http() {
     };
 
     let admin_code = unique_code("PYRB");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Reopen Block HTTP Admin",
@@ -282,7 +284,7 @@ async fn deductions_cannot_exceed_gross_via_http() {
 
     let admin_code = unique_code("PYDC");
     let emp_code = unique_code("PYDE");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Deduction Cap Admin",
@@ -292,7 +294,7 @@ async fn deductions_cannot_exceed_gross_via_http() {
     )
     .await
     .expect("admin");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &emp_code,
         "Deduction Cap Employee",
@@ -375,7 +377,7 @@ async fn non_canonical_closed_period_rejects_draft_via_http() {
     };
 
     let admin_code = unique_code("PYCP");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Canonical HTTP Admin",
@@ -425,7 +427,7 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
 
     let admin_code = unique_code("PYEX");
     let emp_code = unique_code("PYEE");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Export HTTP Admin",
@@ -435,7 +437,7 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
     )
     .await
     .expect("admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Export HTTP Employee",

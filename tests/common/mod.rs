@@ -11,9 +11,13 @@ use dtr::app::create_app;
 use dtr::auth::login_limiter::LoginLimiter;
 use dtr::auth::post_limiter::PostRateLimiter;
 use dtr::metrics::AppMetrics;
+use dtr::error::AppResult;
+use dtr::models::UserRole;
+use dtr::services::employees::create_employee;
 use dtr::state::AppState;
 use dtr::templates::engine;
 use sqlx::PgPool;
+use uuid::Uuid;
 use tower::ServiceExt;
 use tower_sessions::{
     cookie::{Key, SameSite},
@@ -41,6 +45,29 @@ impl Default for TestAppConfig {
             metrics_token: None,
         }
     }
+}
+
+pub async fn clear_must_change_pin(pool: &PgPool, employee_id: Uuid) -> AppResult<()> {
+    sqlx::query("UPDATE employees SET must_change_pin = FALSE WHERE id = $1")
+        .bind(employee_id)
+        .execute(pool)
+        .await
+        .map_err(|e| dtr::error::AppError::Internal(e.into()))?;
+    Ok(())
+}
+
+pub async fn create_ready_employee(
+    pool: &PgPool,
+    employee_code: &str,
+    full_name: &str,
+    pin: &str,
+    role: UserRole,
+    manager_id: Option<Uuid>,
+) -> AppResult<dtr::models::EmployeeSummary> {
+    let employee =
+        create_employee(pool, employee_code, full_name, pin, role, manager_id).await?;
+    clear_must_change_pin(pool, employee.id).await?;
+    Ok(employee)
 }
 
 pub async fn test_pool() -> Option<PgPool> {

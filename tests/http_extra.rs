@@ -2,15 +2,13 @@ mod common;
 
 use axum::http::StatusCode;
 use dtr::models::UserRole;
-use dtr::services::employees::{
-    create_employee, reset_employee_pin, set_employee_active, update_employee,
-};
+use dtr::services::employees::{reset_employee_pin, set_employee_active, update_employee};
 use uuid::Uuid;
 
 use common::{
-    extract_csrf_token, get, get_bytes, get_with_extra_headers, get_with_headers, header_value,
-    login_as, post_form, post_with_body_and_headers, test_app, test_app_with_config, test_pool,
-    TestAppConfig,
+    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_extra_headers,
+    get_with_headers, header_value, login_as, post_form, post_with_body_and_headers, test_app,
+    test_app_with_config, test_pool, TestAppConfig,
 };
 use dtr::services::clock::clock_in;
 use dtr::services::settings::get_settings;
@@ -37,7 +35,7 @@ async fn deactivated_employee_session_is_cleared_on_next_request() {
     };
 
     let code = unique_code("DEAC");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Deactivate Test",
@@ -69,7 +67,7 @@ async fn reset_pin_forces_change_pin_on_next_request() {
     };
 
     let code = unique_code("RSPN");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Reset PIN Test",
@@ -101,7 +99,7 @@ async fn demoted_admin_loses_admin_access_immediately() {
     };
 
     let code = unique_code("DEMT");
-    let admin = create_employee(&pool, &code, "Demote Test", TEST_PIN, UserRole::Admin, None)
+    let admin = create_ready_employee(&pool, &code, "Demote Test", TEST_PIN, UserRole::Admin, None)
         .await
         .expect("create admin");
 
@@ -135,7 +133,7 @@ async fn manager_cannot_view_other_managers_team_member() {
     let mgr_a = unique_code("MGRA");
     let mgr_b = unique_code("MGRB");
     let emp = unique_code("EMPA");
-    let manager_a = create_employee(
+    let manager_a = create_ready_employee(
         &pool,
         &mgr_a,
         "Manager A",
@@ -145,7 +143,7 @@ async fn manager_cannot_view_other_managers_team_member() {
     )
     .await
     .expect("manager a");
-    create_employee(
+    create_ready_employee(
         &pool,
         &mgr_b,
         "Manager B",
@@ -155,7 +153,7 @@ async fn manager_cannot_view_other_managers_team_member() {
     )
     .await
     .expect("manager b");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp,
         "Team Member",
@@ -234,7 +232,7 @@ async fn employee_timesheet_export_returns_csv() {
     };
 
     let code = unique_code("TSCV");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Timesheet Export",
@@ -266,7 +264,7 @@ async fn admin_detail_export_returns_csv() {
     };
 
     let code = unique_code("DTLC");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Detail Export",
@@ -298,7 +296,7 @@ async fn manager_eod_export_returns_csv() {
     };
 
     let code = unique_code("EODX");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "EOD Export Manager",
@@ -342,7 +340,7 @@ async fn employee_leave_page_is_accessible() {
     };
 
     let code = unique_code("LEAV");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Leave Page",
@@ -377,7 +375,7 @@ async fn oversize_upload_is_rejected() {
         ..TestAppConfig::default()
     };
     let code = unique_code("BIGU");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Big Upload",
@@ -508,7 +506,7 @@ async fn notification_dismiss_via_http() {
     };
 
     let code = unique_code("NTFD");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Notify Dismiss",
@@ -545,7 +543,7 @@ async fn admin_can_save_report_preset_via_http() {
     };
 
     let code = unique_code("PRST");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Preset Admin",
@@ -589,7 +587,7 @@ async fn admin_shifts_page_is_accessible() {
 
     let admin_code = unique_code("SHAD");
     let emp_code = unique_code("SHEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Shift Admin",
@@ -599,7 +597,7 @@ async fn admin_shifts_page_is_accessible() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Shift Employee",
@@ -677,7 +675,7 @@ async fn clock_out_requires_ot_reason_via_http() {
     };
 
     let code = unique_code("CLKO");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Clock Out HTTP",

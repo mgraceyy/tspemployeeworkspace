@@ -79,6 +79,11 @@ async fn create_test_admin(pool: &PgPool) -> (Uuid, String) {
     )
     .await
     .expect("create test admin");
+    sqlx::query("UPDATE employees SET must_change_pin = FALSE WHERE id = $1")
+        .bind(admin.id)
+        .execute(pool)
+        .await
+        .expect("clear must_change_pin");
     (admin.id, code)
 }
 

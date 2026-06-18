@@ -3,7 +3,7 @@ mod common;
 use axum::http::StatusCode;
 use dtr::models::{EodReportStatus, OtStatus, UserRole};
 use dtr::services::clock::clock_in;
-use dtr::services::employees::create_employee;
+
 use dtr::services::reports::current_pay_period;
 use dtr::services::requirements::{create_type, list_for_employee};
 use dtr::services::settings::get_settings;
@@ -12,8 +12,8 @@ use time::{Date, Month};
 use uuid::Uuid;
 
 use common::{
-    extract_csrf_token, get, get_bytes, get_with_headers, login_as, post_form, post_multipart,
-    test_app, test_pool,
+    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, login_as,
+    post_form, post_multipart, test_app, test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -61,7 +61,7 @@ async fn admin_can_create_employee_via_http() {
 
     let admin_code = unique_code("ADCR");
     let new_code = unique_code("NEW");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Create Employee Admin",
@@ -102,7 +102,7 @@ async fn admin_can_save_settings_via_http() {
     };
 
     let code = unique_code("SETT");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Settings Admin",
@@ -163,7 +163,7 @@ async fn admin_can_save_shift_via_http() {
 
     let admin_code = unique_code("SHFT");
     let emp_code = unique_code("SHEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Shift Admin",
@@ -173,7 +173,7 @@ async fn admin_can_save_shift_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Shift Employee",
@@ -217,7 +217,7 @@ async fn admin_can_delete_report_preset_via_http() {
     };
 
     let code = unique_code("PRDL");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Preset Delete Admin",
@@ -275,7 +275,7 @@ async fn manager_can_mark_absence_via_http() {
 
     let mgr_code = unique_code("ABMG");
     let emp_code = unique_code("ABEM");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "Absence Manager",
@@ -285,7 +285,7 @@ async fn manager_can_mark_absence_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Absence Employee",
@@ -333,7 +333,7 @@ async fn manager_can_approve_ot_via_http() {
 
     let mgr_code = unique_code("OTMG");
     let emp_code = unique_code("OTEM");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "OT Manager",
@@ -343,7 +343,7 @@ async fn manager_can_approve_ot_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "OT Employee",
@@ -397,7 +397,7 @@ async fn manager_can_export_team_timesheet_csv_via_http() {
 
     let mgr_code = unique_code("TXMG");
     let emp_code = unique_code("TXEM");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "Timesheet Manager",
@@ -407,7 +407,7 @@ async fn manager_can_export_team_timesheet_csv_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Timesheet Employee",
@@ -444,7 +444,7 @@ async fn employee_cannot_download_other_employees_requirement_file() {
 
     let code_a = unique_code("RQA");
     let code_b = unique_code("RQB");
-    let employee_a = create_employee(
+    let employee_a = create_ready_employee(
         &pool,
         &code_a,
         "Requirement Owner",
@@ -454,7 +454,7 @@ async fn employee_cannot_download_other_employees_requirement_file() {
     )
     .await
     .expect("create employee a");
-    let _employee_b = create_employee(
+    let _employee_b = create_ready_employee(
         &pool,
         &code_b,
         "Requirement Intruder",
@@ -513,7 +513,7 @@ async fn manager_can_reject_leave_via_http() {
 
     let mgr_code = unique_code("LVRJ");
     let emp_code = unique_code("LVEJ");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "Leave Reject Manager",
@@ -523,7 +523,7 @@ async fn manager_can_reject_leave_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Leave Reject Employee",
@@ -586,7 +586,7 @@ async fn admin_can_update_employee_via_http() {
 
     let admin_code = unique_code("ADUP");
     let emp_code = unique_code("EMUP");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Update Admin",
@@ -596,7 +596,7 @@ async fn admin_can_update_employee_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Before Update",
@@ -640,7 +640,7 @@ async fn admin_can_bulk_assign_department_via_http() {
 
     let admin_code = unique_code("BKDP");
     let emp_code = unique_code("BKEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Bulk Dept Admin",
@@ -650,7 +650,7 @@ async fn admin_can_bulk_assign_department_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Bulk Dept Employee",
@@ -700,7 +700,7 @@ async fn manager_can_reject_ot_via_http() {
 
     let mgr_code = unique_code("OTRJ");
     let emp_code = unique_code("OTER");
-    let manager = create_employee(
+    let manager = create_ready_employee(
         &pool,
         &mgr_code,
         "OT Reject Manager",
@@ -710,7 +710,7 @@ async fn manager_can_reject_ot_via_http() {
     )
     .await
     .expect("create manager");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "OT Reject Employee",
@@ -764,7 +764,7 @@ async fn change_pin_success_via_http() {
 
     let code = unique_code("PINS");
     let new_pin = "593847";
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Change PIN Success",
@@ -800,7 +800,7 @@ async fn change_pin_locks_after_repeated_wrong_current_pin() {
     };
 
     let code = unique_code("PINL");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Change PIN Lock",
@@ -844,7 +844,7 @@ async fn admin_can_reset_pin_via_http() {
 
     let admin_code = unique_code("RPNAD");
     let emp_code = unique_code("RPNEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Reset PIN Admin",
@@ -854,7 +854,7 @@ async fn admin_can_reset_pin_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Reset PIN Employee",
@@ -897,7 +897,7 @@ async fn admin_can_toggle_active_via_http() {
 
     let admin_code = unique_code("TGLAD");
     let emp_code = unique_code("TGLEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Toggle Active Admin",
@@ -907,7 +907,7 @@ async fn admin_can_toggle_active_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Toggle Active Employee",
@@ -970,7 +970,7 @@ async fn employee_can_save_and_submit_eod_via_http() {
     };
 
     let code = unique_code("EODS");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "EOD Save Test",
@@ -1028,7 +1028,7 @@ async fn admin_can_unlock_eod_via_http() {
 
     let admin_code = unique_code("EODAD");
     let emp_code = unique_code("EODEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "EOD Unlock Admin",
@@ -1038,7 +1038,7 @@ async fn admin_can_unlock_eod_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "EOD Unlock Employee",
@@ -1100,7 +1100,7 @@ async fn employee_can_download_own_requirement_file_via_http() {
     };
 
     let code = unique_code("DLRQ");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &code,
         "Requirement Download",
@@ -1172,7 +1172,7 @@ async fn admin_can_save_compensation_via_http() {
 
     let admin_code = unique_code("CMPAD");
     let emp_code = unique_code("CMPEM");
-    create_employee(
+    create_ready_employee(
         &pool,
         &admin_code,
         "Compensation Admin",
@@ -1182,7 +1182,7 @@ async fn admin_can_save_compensation_via_http() {
     )
     .await
     .expect("create admin");
-    let employee = create_employee(
+    let employee = create_ready_employee(
         &pool,
         &emp_code,
         "Compensation Employee",
@@ -1235,7 +1235,7 @@ async fn admin_can_finalize_payroll_run_via_http() {
 
     let admin_code = unique_code("PYHT");
     let emp_code = unique_code("PYHE");
-    let admin = create_employee(
+    let admin = create_ready_employee(
         &pool,
         &admin_code,
         "Payroll HTTP Admin",
@@ -1245,7 +1245,7 @@ async fn admin_can_finalize_payroll_run_via_http() {
     )
     .await
     .expect("create admin");
-    let _employee = create_employee(
+    let _employee = create_ready_employee(
         &pool,
         &emp_code,
         "Payroll HTTP Employee",
@@ -1393,7 +1393,7 @@ async fn admin_can_finalize_payroll_run_via_http() {
     assert!(payslip_html.contains("Net pay"));
 
     let other_code = unique_code("PYHO");
-    create_employee(
+    create_ready_employee(
         &pool,
         &other_code,
         "Other Payslip Employee",
