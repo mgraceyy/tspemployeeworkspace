@@ -22,7 +22,7 @@ argon2 = "0.5"
 axum = { version = "0.8", features = ["json", "macros", "multipart"] }
 csv = "1"
 printpdf = "0.7"
-rust_xlsxwriter = "0.79"
+rust_xlsxwriter = "0.95"
 dotenvy = "0.15"
 minijinja = { version = "2", features = ["loader"] }
 password-hash = "0.5"
