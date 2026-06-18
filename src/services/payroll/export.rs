@@ -8,6 +8,7 @@ use super::runs::list_lines_for_run;
 use crate::error::{AppError, AppResult};
 use crate::models::{PayrollRun, PayrollRunStatus};
 use crate::services::compensation::format_salary_cents;
+use crate::services::settings::get_settings;
 
 #[derive(Debug, sqlx::FromRow)]
 struct LineDeductionRow {
@@ -148,6 +149,8 @@ pub async fn build_bank_upload_csv(pool: &PgPool, run: &PayrollRun) -> AppResult
          JOIN employees e ON e.id = l.employee_id
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
          WHERE l.run_id = $1
+           AND p.bank_account IS NOT NULL
+           AND TRIM(p.bank_account) <> ''
          ORDER BY e.full_name",
     )
     .bind(run.id)
@@ -176,6 +179,22 @@ pub async fn build_bank_upload_csv(pool: &PgPool, run: &PayrollRun) -> AppResult
     Ok(csv_bytes)
 }
 
+pub async fn count_missing_bank_accounts_for_run(pool: &PgPool, run_id: Uuid) -> AppResult<i64> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM payroll_lines l
+         JOIN employees e ON e.id = l.employee_id
+         LEFT JOIN employee_profiles p ON p.employee_id = e.id
+         WHERE l.run_id = $1
+           AND (p.bank_account IS NULL OR TRIM(p.bank_account) = '')",
+    )
+    .bind(run_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(count)
+}
+
 pub async fn build_journal_export_csv(
     pool: &PgPool,
     run: &PayrollRun,
@@ -187,6 +206,7 @@ pub async fn build_journal_export_csv(
         ));
     }
 
+    let settings = get_settings(pool).await?;
     let lines = list_lines_for_run(pool, run.id).await?;
     let types = list_deduction_types(pool).await?;
     let line_ids: Vec<Uuid> = lines.iter().map(|l| l.id).collect();
@@ -213,8 +233,8 @@ pub async fn build_journal_export_csv(
                     period_label.to_string(),
                     line.employee_code.clone(),
                     line.full_name.clone(),
-                    "5100".to_string(),
-                    "Salaries expense".to_string(),
+                    settings.journal_salary_expense_account.clone(),
+                    settings.journal_salary_expense_label.clone(),
                     format_salary_cents(line.gross_pay_cents),
                     String::new(),
                 ])
@@ -247,8 +267,8 @@ pub async fn build_journal_export_csv(
                     period_label.to_string(),
                     line.employee_code.clone(),
                     line.full_name.clone(),
-                    "2100".to_string(),
-                    "Net pay payable".to_string(),
+                    settings.journal_net_payable_account.clone(),
+                    settings.journal_net_payable_label.clone(),
                     String::new(),
                     format_salary_cents(line.net_pay_cents),
                 ])

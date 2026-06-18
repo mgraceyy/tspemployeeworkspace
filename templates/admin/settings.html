@@ -56,6 +56,20 @@
       <input type="checkbox" name="ot_requires_approval" value="on" {% if content.settings.ot_requires_approval %}checked{% endif %}>
       Overtime requires manager approval
     </label>
+    <h2>Payroll accounting (journal CSV)</h2>
+    <p class="hint">GL account codes used in <strong>Journal CSV</strong> exports on finalized payroll runs.</p>
+    <label>Salary expense account
+      <input type="text" name="journal_salary_expense_account" value="{{ content.settings.journal_salary_expense_account }}" required>
+    </label>
+    <label>Salary expense label
+      <input type="text" name="journal_salary_expense_label" value="{{ content.settings.journal_salary_expense_label }}" required>
+    </label>
+    <label>Net pay payable account
+      <input type="text" name="journal_net_payable_account" value="{{ content.settings.journal_net_payable_account }}" required>
+    </label>
+    <label>Net pay payable label
+      <input type="text" name="journal_net_payable_label" value="{{ content.settings.journal_net_payable_label }}" required>
+    </label>
     <button type="submit" class="btn btn-primary">Save Settings</button>
   </form>
 </section>

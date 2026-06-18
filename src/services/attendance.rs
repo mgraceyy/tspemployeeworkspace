@@ -157,6 +157,10 @@ mod tests {
             pay_period_anchor: Date::from_calendar_date(2024, Month::January, 1).unwrap(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
+            journal_salary_expense_account: "5100".into(),
+            journal_net_payable_account: "2100".into(),
+            journal_salary_expense_label: "Salaries expense".into(),
+            journal_net_payable_label: "Net pay payable".into(),
         }
     }
 

@@ -14,7 +14,10 @@ pub use deductions::{
     get_line_for_run, list_deduction_types, list_deductions_for_line,
     parse_optional_amount_to_cents, save_line_deductions, DeductionInput,
 };
-pub use export::{build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv};
+pub use export::{
+    build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv,
+    count_missing_bank_accounts_for_run,
+};
 pub use payslips::{
     get_payslip_for_admin, get_payslip_for_employee, list_payslips_for_employee, PayslipDetail,
     PayslipListItem,

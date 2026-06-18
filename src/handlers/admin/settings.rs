@@ -39,6 +39,10 @@ pub async fn settings_page(
                 pay_period => settings.pay_period,
                 pay_period_anchor => format_date(settings.pay_period_anchor),
                 ot_requires_approval => settings.ot_requires_approval,
+                journal_salary_expense_account => settings.journal_salary_expense_account,
+                journal_net_payable_account => settings.journal_net_payable_account,
+                journal_salary_expense_label => settings.journal_salary_expense_label,
+                journal_net_payable_label => settings.journal_net_payable_label,
             },
             message => None::<String>,
         },
@@ -56,6 +60,10 @@ pub struct SettingsForm {
     pay_period: String,
     pay_period_anchor: String,
     ot_requires_approval: Option<String>,
+    journal_salary_expense_account: String,
+    journal_net_payable_account: String,
+    journal_salary_expense_label: String,
+    journal_net_payable_label: String,
 }
 
 pub async fn save_settings(
@@ -84,6 +92,10 @@ pub async fn save_settings(
             pay_period,
             pay_period_anchor,
             ot_requires_approval: form.ot_requires_approval.is_some(),
+            journal_salary_expense_account: &form.journal_salary_expense_account,
+            journal_net_payable_account: &form.journal_net_payable_account,
+            journal_salary_expense_label: &form.journal_salary_expense_label,
+            journal_net_payable_label: &form.journal_net_payable_label,
         },
     )
     .await?;

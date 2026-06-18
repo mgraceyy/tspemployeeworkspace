@@ -225,8 +225,8 @@ Rest-day OT, holiday premiums, night differential — only if DOLE-full complian
 
 | Item | Status |
 |------|--------|
-| Bank upload CSV (`export-bank.csv`, uses `bank_account` on profile) | ✅ Done |
-| Journal entry CSV (`export-journal.csv`) | ✅ Done |
+| Bank upload CSV (`export-bank.csv`, uses `bank_account` on profile) | ✅ Done — omits employees with blank/missing bank account; payroll run page shows count |
+| Journal entry CSV (`export-journal.csv`) | ✅ Done — salary expense + net payable GL accounts/labels configurable in `/admin/settings` |
 | 13th-month accrual report | Deferred — external spreadsheet |
 
 ---

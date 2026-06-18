@@ -54,6 +54,10 @@ mod tests {
                 .unwrap(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
+            journal_salary_expense_account: "5100".into(),
+            journal_net_payable_account: "2100".into(),
+            journal_salary_expense_label: "Salaries expense".into(),
+            journal_net_payable_label: "Net pay payable".into(),
         }
     }
 

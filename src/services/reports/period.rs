@@ -263,6 +263,10 @@ mod tests {
             pay_period_anchor: anchor(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
+            journal_salary_expense_account: "5100".into(),
+            journal_net_payable_account: "2100".into(),
+            journal_salary_expense_label: "Salaries expense".into(),
+            journal_net_payable_label: "Net pay payable".into(),
         };
         let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
         let end = Date::from_calendar_date(2026, Month::June, 15).unwrap();
@@ -280,6 +284,10 @@ mod tests {
             pay_period_anchor: anchor(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
+            journal_salary_expense_account: "5100".into(),
+            journal_net_payable_account: "2100".into(),
+            journal_salary_expense_label: "Salaries expense".into(),
+            journal_net_payable_label: "Net pay payable".into(),
         };
         let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
         let end = Date::from_calendar_date(2026, Month::June, 10).unwrap();
@@ -297,6 +305,10 @@ mod tests {
             pay_period_anchor: anchor(),
             timezone: "Asia/Manila".into(),
             ot_requires_approval: true,
+            journal_salary_expense_account: "5100".into(),
+            journal_net_payable_account: "2100".into(),
+            journal_salary_expense_label: "Salaries expense".into(),
+            journal_net_payable_label: "Net pay payable".into(),
         };
         let today = Date::from_calendar_date(2026, Month::June, 17).unwrap();
         let period =

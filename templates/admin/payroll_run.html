@@ -37,6 +37,11 @@
     <a href="/admin/payroll/{{ content.run_id }}/export-bank.csv" class="btn btn-secondary">Bank upload CSV</a>
     <a href="/admin/payroll/{{ content.run_id }}/export-journal.csv" class="btn btn-secondary">Journal CSV</a>
   </div>
+  {% if content.has_missing_bank_accounts %}
+  <p class="hint">
+    Bank upload CSV omits <strong>{{ content.missing_bank_account_count }}</strong> employee(s) without a bank account on file. Add accounts under employee profiles before exporting.
+  </p>
+  {% endif %}
   {% elif content.is_draft %}
   <p class="hint">Enter deductions per employee before finalizing. Net pay = gross − deductions.</p>
   <p class="hint">Gross pay is a snapshot from when this draft was created. If attendance, OT, or compensation changed, void this draft, reopen the period in Reports, fix the data, close again, then create a new run.</p>

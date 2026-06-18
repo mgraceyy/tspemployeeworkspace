@@ -133,13 +133,17 @@ async fn admin_can_save_settings_via_http() {
         ""
     };
     let body = format!(
-        "company_name={company_name}&timezone={}&break_minutes={}&ot_threshold_minutes={}&grace_minutes={}&pay_period={}&pay_period_anchor={}{ot_flag}&csrf_token={csrf}",
+        "company_name={company_name}&timezone={}&break_minutes={}&ot_threshold_minutes={}&grace_minutes={}&pay_period={}&pay_period_anchor={}{ot_flag}&journal_salary_expense_account={}&journal_salary_expense_label={}&journal_net_payable_account={}&journal_net_payable_label={}&csrf_token={csrf}",
         settings.timezone,
         settings.break_minutes,
         settings.ot_threshold_minutes,
         settings.grace_minutes,
         pay_period,
         anchor,
+        settings.journal_salary_expense_account,
+        settings.journal_salary_expense_label,
+        settings.journal_net_payable_account,
+        settings.journal_net_payable_label,
     );
     let (status, _, _) = post_form(&mut app, "/admin/settings", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);

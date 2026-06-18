@@ -21,4 +21,8 @@ pub struct CompanySettings {
     pub pay_period_anchor: Date,
     pub timezone: String,
     pub ot_requires_approval: bool,
+    pub journal_salary_expense_account: String,
+    pub journal_net_payable_account: String,
+    pub journal_salary_expense_label: String,
+    pub journal_net_payable_label: String,
 }

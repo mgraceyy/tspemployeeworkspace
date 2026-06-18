@@ -43,9 +43,10 @@ use dtr::models::PayrollRunStatus;
 use dtr::services::leave::{create_request, review_request};
 use dtr::services::payroll::{
     build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, build_payslip_pdf,
-    create_draft_run, finalize_run, get_line_for_run, get_payslip_for_employee, get_run,
-    is_draft_attendance_stale, list_deduction_types, list_lines_for_run,
-    list_payslips_for_employee, save_line_deductions, void_draft_run, DeductionInput,
+    count_missing_bank_accounts_for_run, create_draft_run, finalize_run, get_line_for_run,
+    get_payslip_for_employee, get_run, is_draft_attendance_stale, list_deduction_types,
+    list_lines_for_run, list_payslips_for_employee, save_line_deductions, void_draft_run,
+    DeductionInput,
 };
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
 use dtr::services::reports::current_pay_period;
@@ -942,6 +943,10 @@ fn ot_status_auto_approves_when_approval_disabled() {
         pay_period_anchor: Date::from_calendar_date(2024, Month::January, 1).unwrap(),
         timezone: "Asia/Manila".into(),
         ot_requires_approval: false,
+        journal_salary_expense_account: "5100".into(),
+        journal_net_payable_account: "2100".into(),
+        journal_salary_expense_label: "Salaries expense".into(),
+        journal_net_payable_label: "Net pay payable".into(),
     };
 
     assert_eq!(ot_status_for_minutes(90, &settings), OtStatus::Approved);
@@ -1316,6 +1321,10 @@ async fn company_timezone_drives_clock_in_work_date() {
         pay_period: original.pay_period,
         pay_period_anchor: original.pay_period_anchor,
         ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: &original.journal_salary_expense_account,
+        journal_net_payable_account: &original.journal_net_payable_account,
+        journal_salary_expense_label: &original.journal_salary_expense_label,
+        journal_net_payable_label: &original.journal_net_payable_label,
     };
     update_settings(&pool, &update)
         .await
@@ -1357,6 +1366,10 @@ async fn company_timezone_drives_clock_in_work_date() {
         pay_period: original.pay_period,
         pay_period_anchor: original.pay_period_anchor,
         ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: &original.journal_salary_expense_account,
+        journal_net_payable_account: &original.journal_net_payable_account,
+        journal_salary_expense_label: &original.journal_salary_expense_label,
+        journal_net_payable_label: &original.journal_net_payable_label,
     };
     update_settings(&pool, &restore)
         .await
@@ -2150,6 +2163,10 @@ where
         pay_period,
         pay_period_anchor: original.pay_period_anchor,
         ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: &original.journal_salary_expense_account,
+        journal_net_payable_account: &original.journal_net_payable_account,
+        journal_salary_expense_label: &original.journal_salary_expense_label,
+        journal_net_payable_label: &original.journal_net_payable_label,
     };
     update_settings(pool, &update)
         .await
@@ -2164,6 +2181,10 @@ where
         pay_period: original.pay_period,
         pay_period_anchor: original.pay_period_anchor,
         ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: &original.journal_salary_expense_account,
+        journal_net_payable_account: &original.journal_net_payable_account,
+        journal_salary_expense_label: &original.journal_salary_expense_label,
+        journal_net_payable_label: &original.journal_net_payable_label,
     };
     update_settings(pool, &restore)
         .await
@@ -2723,6 +2744,222 @@ async fn finalized_payroll_exports_include_allowances_and_bank_data() {
     cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn bank_upload_csv_omits_employees_without_bank_account() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("BKAD");
+    let with_bank_code = unique_code("BKWB");
+    let no_bank_code = unique_code("BKNB");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Bank Export Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let with_bank = create_employee(
+        &pool,
+        &with_bank_code,
+        "Bank Export With Account",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("with bank");
+    let _no_bank = create_employee(
+        &pool,
+        &no_bank_code,
+        "Bank Export No Account",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("no bank");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    update_admin(
+        &pool,
+        with_bank.id,
+        admin.id,
+        AdminProfileInput {
+            contact_number: None,
+            personal_email: None,
+            birthdate: None,
+            address: None,
+            emergency_contact_name: None,
+            emergency_contact_phone: None,
+            job_title: None,
+            department: None,
+            employment_type: None,
+            date_hired: None,
+            work_location: None,
+            bank_account: Some("9988776655"),
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
+        },
+    )
+    .await
+    .expect("bank profile");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("bank skip test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    clear_pending_ot_in_run(&pool, run_id).await;
+    finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect("finalize");
+    let run = get_run(&pool, run_id).await.expect("run");
+
+    let bank_csv = build_bank_upload_csv(&pool, &run).await.expect("bank csv");
+    let bank_text = String::from_utf8(bank_csv).expect("utf8");
+    let data_rows: Vec<&str> = bank_text.lines().skip(1).collect();
+    assert_eq!(data_rows.len(), 1);
+    assert!(bank_text.contains(with_bank_code.to_uppercase().as_str()));
+    assert!(!bank_text.contains(no_bank_code.to_uppercase().as_str()));
+
+    let missing = count_missing_bank_accounts_for_run(&pool, run_id)
+        .await
+        .expect("missing count");
+    assert!(missing >= 2);
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &with_bank_code).await;
+    cleanup_employee(&pool, &no_bank_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn journal_export_uses_configurable_gl_accounts() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let original = get_settings(&pool).await.expect("settings");
+    let custom_update = SettingsUpdate {
+        company_name: &original.company_name,
+        timezone: &original.timezone,
+        break_minutes: original.break_minutes,
+        ot_threshold_minutes: original.ot_threshold_minutes,
+        grace_minutes: original.grace_minutes,
+        pay_period: original.pay_period,
+        pay_period_anchor: original.pay_period_anchor,
+        ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: "6100",
+        journal_net_payable_account: "2200",
+        journal_salary_expense_label: "Custom salary expense",
+        journal_net_payable_label: "Custom net payable",
+    };
+    update_settings(&pool, &custom_update)
+        .await
+        .expect("custom journal settings");
+
+    let admin_code = unique_code("JLAD");
+    let emp_code = unique_code("JLEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Journal Export Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let _employee = create_employee(
+        &pool,
+        &emp_code,
+        "Journal Export Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("journal gl test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    clear_pending_ot_in_run(&pool, run_id).await;
+    finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect("finalize");
+    let run = get_run(&pool, run_id).await.expect("run");
+    let period_label = format!("{period_start} — {period_end}");
+
+    let journal_csv = build_journal_export_csv(&pool, &run, &period_label)
+        .await
+        .expect("journal csv");
+    let journal_text = String::from_utf8(journal_csv).expect("utf8");
+    assert!(journal_text.contains("6100"));
+    assert!(journal_text.contains("Custom salary expense"));
+    assert!(journal_text.contains("2200"));
+    assert!(journal_text.contains("Custom net payable"));
+    assert!(!journal_text.contains("Salaries expense"));
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+
+    let restore = SettingsUpdate {
+        company_name: &original.company_name,
+        timezone: &original.timezone,
+        break_minutes: original.break_minutes,
+        ot_threshold_minutes: original.ot_threshold_minutes,
+        grace_minutes: original.grace_minutes,
+        pay_period: original.pay_period,
+        pay_period_anchor: original.pay_period_anchor,
+        ot_requires_approval: original.ot_requires_approval,
+        journal_salary_expense_account: &original.journal_salary_expense_account,
+        journal_net_payable_account: &original.journal_net_payable_account,
+        journal_salary_expense_label: &original.journal_salary_expense_label,
+        journal_net_payable_label: &original.journal_net_payable_label,
+    };
+    update_settings(&pool, &restore)
+        .await
+        .expect("restore journal settings");
 }
 
 #[tokio::test]

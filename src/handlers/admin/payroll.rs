@@ -25,9 +25,10 @@ use crate::services::{
         void_draft_run,
     },
     payroll::{
-        build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, get_line_for_run,
-        is_draft_attendance_stale, list_deduction_types, list_deductions_for_line,
-        parse_optional_amount_to_cents, save_line_deductions, DeductionInput,
+        build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv,
+        count_missing_bank_accounts_for_run, get_line_for_run, is_draft_attendance_stale,
+        list_deduction_types, list_deductions_for_line, parse_optional_amount_to_cents,
+        save_line_deductions, DeductionInput,
     },
     reports::period_label_for_range,
     settings::get_settings,
@@ -193,6 +194,11 @@ pub async fn payroll_run_page(
     let total_gross = total_gross_cents(&lines);
     let total_deductions = total_deduction_cents(&lines);
     let total_net = total_net_cents(&lines);
+    let missing_bank_account_count = if run.status == PayrollRunStatus::Finalized {
+        count_missing_bank_accounts_for_run(&state.pool, run_id).await?
+    } else {
+        0
+    };
 
     let line_rows: Vec<_> = lines
         .iter()
@@ -248,6 +254,8 @@ pub async fn payroll_run_page(
             inactive_employee_count => inactive_count,
             is_finalized => run.status == PayrollRunStatus::Finalized,
             attendance_stale => attendance_stale,
+            has_missing_bank_accounts => missing_bank_account_count > 0,
+            missing_bank_account_count => missing_bank_account_count,
         },
     )
     .await
