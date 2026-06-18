@@ -8,6 +8,8 @@ use crate::handlers::flash::redirect_with_flash;
 use crate::services::{
     audit::log_action,
     payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult},
+    reports::assert_canonical_pay_period,
+    settings::get_settings,
     timezone::{format_date, parse_date},
 };
 use crate::state::AppState;
@@ -27,6 +29,8 @@ pub async fn close_pay_period_action(
 ) -> AppResult<Redirect> {
     let start = parse_date(&form.start).map_err(AppError::bad_request)?;
     let end = parse_date(&form.end).map_err(AppError::bad_request)?;
+    let settings = get_settings(&state.pool).await?;
+    let canonical = assert_canonical_pay_period(&settings, start, end).is_ok();
     let result = close_pay_period(
         &state.pool,
         start,
@@ -56,13 +60,12 @@ pub async fn close_pay_period_action(
             )
             .await?;
 
-            redirect_with_flash(
-                &session,
-                &redirect_url,
-                "success",
-                "Pay period closed — time edits in this range are now blocked",
-            )
-            .await
+            let message = if canonical {
+                "Pay period closed — time edits in this range are now blocked. You can run payroll from Payroll Runs."
+            } else {
+                "Pay period closed — time edits in this range are now blocked. Note: this range is not a full pay period, so payroll cannot run until you close the exact canonical range."
+            };
+            redirect_with_flash(&session, &redirect_url, "success", message).await
         }
         ClosePayPeriodResult::AlreadyClosed => {
             redirect_with_flash(

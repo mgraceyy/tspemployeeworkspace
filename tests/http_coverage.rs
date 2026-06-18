@@ -1363,6 +1363,13 @@ async fn admin_can_finalize_payroll_run_via_http() {
         .expect("status");
     assert_eq!(status, "finalized");
 
+    let export_path = format!("/admin/payroll/{run_id}/export.csv");
+    let (status, export_body, _) = get(&mut app, &export_path, &cookies).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(export_body.contains("Employee Code"));
+    assert!(export_body.contains("Net Pay"));
+    assert!(export_body.contains(&emp_code.to_uppercase()));
+
     let payslip_path = format!("/admin/payroll/{run_id}/lines/{line_id}/payslip");
     let (_, payslip_html, _) = get(&mut app, &payslip_path, &cookies).await;
     assert!(payslip_html.contains("Employee Payslip"));

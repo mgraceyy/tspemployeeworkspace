@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use axum::{
     extract::{Path, State},
-    response::Redirect,
+    response::{IntoResponse, Redirect, Response},
     Form,
 };
 use minijinja::context;
@@ -25,7 +25,7 @@ use crate::services::{
         void_draft_run,
     },
     payroll::{
-        get_line_for_run, list_deduction_types, list_deductions_for_line,
+        build_finalized_run_csv, get_line_for_run, list_deduction_types, list_deductions_for_line,
         parse_optional_amount_to_cents, save_line_deductions, DeductionInput,
     },
     reports::period_label_for_range,
@@ -73,7 +73,15 @@ pub async fn payroll_runs_page(
     let settings = get_settings(&state.pool).await?;
     let runs = list_runs(&state.pool).await?;
     let candidates = list_runnable_closed_periods(&state.pool).await?;
-    let missing_comp = employees_missing_compensation(&state.pool).await?;
+    let mut missing_comp = Vec::new();
+    for candidate in &candidates {
+        for code in employees_missing_compensation(&state.pool, candidate.period_end).await? {
+            if !missing_comp.contains(&code) {
+                missing_comp.push(code);
+            }
+        }
+    }
+    missing_comp.sort();
 
     let run_rows: Vec<_> = runs
         .iter()
@@ -233,9 +241,38 @@ pub async fn payroll_run_page(
             can_finalize => pending_ot == 0,
             has_inactive_employees => inactive_count > 0,
             inactive_employee_count => inactive_count,
+            is_finalized => run.status == PayrollRunStatus::Finalized,
         },
     )
     .await
+}
+
+pub async fn export_payroll_run_csv(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path(run_id): Path<Uuid>,
+) -> AppResult<Response> {
+    let settings = get_settings(&state.pool).await?;
+    let run = get_run(&state.pool, run_id).await?;
+    if run.status == PayrollRunStatus::Voided {
+        return Err(AppError::NotFound);
+    }
+    let period_label = period_label_for_range(run.period_start, run.period_end);
+    let csv_bytes = build_finalized_run_csv(&state.pool, &run, &period_label).await?;
+    let filename = format!(
+        "{}-payroll-run-{}.csv",
+        settings.company_name.replace(' ', "-"),
+        period_label.replace(' ', "-")
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        csv_bytes,
+    )
+        .into_response())
 }
 
 pub async fn payroll_line_deductions_page(

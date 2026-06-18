@@ -1953,3 +1953,79 @@ async fn payroll_run_rejects_non_canonical_closed_period() {
             .await;
     cleanup_employee(&pool, &admin_code).await;
 }
+
+#[tokio::test]
+async fn payroll_rejects_compensation_not_effective_on_period_end() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PYEF");
+    let emp_code = unique_code("PYEE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Effective Date Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Future Comp Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let future_effective = period_end + time::Duration::days(30);
+
+    upsert_profile(
+        &pool,
+        employee.id,
+        1_000_000,
+        132,
+        future_effective,
+        admin.id,
+    )
+    .await
+    .expect("future compensation");
+
+    ensure_all_active_have_compensation(&pool, admin.id, period_end).await;
+
+    let missing = dtr::services::payroll::employees_missing_compensation(&pool, period_end)
+        .await
+        .expect("missing comp");
+    assert!(missing.iter().any(|code| code == &emp_code.to_uppercase()));
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("effective date test"),
+    )
+    .await
+    .expect("close");
+
+    let err = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect_err("future compensation blocks draft");
+    assert!(matches!(err, AppError::BadRequest(msg) if msg.contains(&emp_code.to_uppercase())));
+
+    cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+    let _ = sqlx::query("DELETE FROM compensation_profiles WHERE employee_id = $1")
+        .bind(employee.id)
+        .execute(&pool)
+        .await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}

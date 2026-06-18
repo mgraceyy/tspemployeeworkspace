@@ -66,15 +66,49 @@ pub async fn list_runnable_closed_periods(pool: &PgPool) -> AppResult<Vec<Closed
     .map_err(|e| AppError::Internal(e.into()))
 }
 
-pub async fn employees_missing_compensation(pool: &PgPool) -> AppResult<Vec<String>> {
+pub async fn employees_missing_compensation(pool: &PgPool, as_of: Date) -> AppResult<Vec<String>> {
     sqlx::query_scalar(
         "SELECT e.employee_code
          FROM employees e
-         LEFT JOIN compensation_profiles c ON c.employee_id = e.id
-         WHERE e.is_active = TRUE AND c.employee_id IS NULL
+         WHERE e.is_active = TRUE
+           AND NOT EXISTS (
+             SELECT 1 FROM compensation_profiles c
+             WHERE c.employee_id = e.id AND c.effective_from <= $1
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM compensation_history h
+             WHERE h.employee_id = e.id
+               AND h.effective_from <= $1
+               AND (h.effective_to IS NULL OR h.effective_to >= $1)
+           )
          ORDER BY e.employee_code",
     )
+    .bind(as_of)
     .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PeriodPayrollStatus {
+    pub id: Uuid,
+    pub status: PayrollRunStatus,
+}
+
+pub async fn get_active_run_for_period(
+    pool: &PgPool,
+    period_start: Date,
+    period_end: Date,
+) -> AppResult<Option<PeriodPayrollStatus>> {
+    sqlx::query_as::<_, PeriodPayrollStatus>(
+        "SELECT id, status
+         FROM payroll_runs
+         WHERE period_start = $1 AND period_end = $2 AND status IN ('draft', 'finalized')
+         LIMIT 1",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .fetch_optional(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))
 }
@@ -137,10 +171,11 @@ pub async fn create_draft_run(
     }
     assert_canonical_pay_period(settings, period_start, period_end)?;
 
-    let missing = employees_missing_compensation(pool).await?;
+    let missing = employees_missing_compensation(pool, period_end).await?;
     if !missing.is_empty() {
         return Err(AppError::bad_request(format!(
-            "Set compensation for all active employees before running payroll. Missing: {}",
+            "Set compensation effective on {} for all active employees before running payroll. Missing: {}",
+            crate::services::timezone::format_date(period_end),
             missing.join(", ")
         )));
     }

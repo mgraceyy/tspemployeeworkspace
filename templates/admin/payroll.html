@@ -8,7 +8,7 @@
 
 {% if content.missing_compensation %}
 <div class="alert alert-warning">
-  Set compensation for all active employees before creating a run:
+  Set compensation effective on each period end date for all active employees before creating a run:
   <strong>{{ content.missing_compensation | join(', ') }}</strong>
 </div>
 {% endif %}

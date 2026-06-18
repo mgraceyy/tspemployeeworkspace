@@ -220,6 +220,10 @@ where
             "/admin/payroll/{run_id}/finalize",
             post(admin::finalize_payroll_run_action),
         )
+        .route(
+            "/admin/payroll/{run_id}/export.csv",
+            get(admin::export_payroll_run_csv),
+        )
         .route("/admin/reports", get(admin::reports_page))
         .route(
             "/admin/reports/presets",

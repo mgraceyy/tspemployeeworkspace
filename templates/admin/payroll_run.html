@@ -25,7 +25,9 @@
   <p>Total gross: <strong>PHP {{ content.total_gross }}</strong></p>
   <p>Total deductions: <strong>PHP {{ content.total_deductions }}</strong></p>
   <p>Total net: <strong>PHP {{ content.total_net }}</strong></p>
-  {% if content.is_draft %}
+  {% if content.is_finalized %}
+  <p><a href="/admin/payroll/{{ content.run_id }}/export.csv" class="btn btn-primary">Download payroll CSV</a></p>
+  {% elif content.is_draft %}
   <p class="hint">Enter deductions per employee before finalizing. Net pay = gross − deductions.</p>
   <div class="inline-form">
     {% if content.can_finalize %}

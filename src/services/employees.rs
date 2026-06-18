@@ -303,6 +303,36 @@ pub async fn seed_e2e_fixtures(pool: &PgPool, enabled: bool) -> AppResult<()> {
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
 
+    if let Ok(settings) = crate::services::settings::get_settings(pool).await {
+        if let Some(admin) = find_by_code(pool, "ADMIN").await? {
+            let effective =
+                crate::services::timezone::company_date_now(&settings)? - time::Duration::days(365);
+            let missing_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+                "SELECT e.id FROM employees e
+                 LEFT JOIN compensation_profiles c ON c.employee_id = e.id
+                 WHERE e.is_active = TRUE AND c.employee_id IS NULL",
+            )
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+            let seeded_count = missing_ids.len();
+            for employee_id in missing_ids {
+                crate::services::compensation::upsert_profile(
+                    pool,
+                    employee_id,
+                    2_500_000,
+                    132,
+                    effective,
+                    admin.id,
+                )
+                .await?;
+            }
+            if seeded_count > 0 {
+                tracing::info!("seeded E2E compensation for {seeded_count} active employee(s)");
+            }
+        }
+    }
+
     let doc_exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM requirement_types WHERE name = 'E2E Test Document')",
     )

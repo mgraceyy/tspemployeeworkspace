@@ -8,17 +8,19 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::error::AppResult;
 use crate::handlers::render::{render_page, HtmlPage};
+use crate::models::PayrollRunStatus;
 use crate::models::UserRole;
 use crate::services::{
     employees::list_all,
     onboarding::list_distinct_departments,
+    payroll::runs::get_active_run_for_period,
     payroll_controls::{
         is_period_closed, is_period_exactly_closed, list_overlapping_closed_periods,
         list_report_presets, ReportPreset,
     },
     reports::{
-        minutes_to_hours_decimal, pay_period_label, payroll_summary, resolve_report_period,
-        ReportPeriod,
+        assert_canonical_pay_period, current_pay_period, minutes_to_hours_decimal,
+        pay_period_label, payroll_summary, resolve_report_period, ReportPeriod,
     },
     settings::get_settings,
     timezone::{company_date_now, format_date},
@@ -173,6 +175,32 @@ pub async fn reports_page(
         })
         .collect();
 
+    let is_canonical_period =
+        assert_canonical_pay_period(&settings, period.start, period.end).is_ok();
+    let (_, _, canonical_period_label) =
+        current_pay_period(period.end, settings.pay_period, settings.pay_period_anchor);
+    let total_pending_ot_minutes: i64 = rows.iter().map(|r| r.pending_ot_minutes).sum();
+    let payroll_run = if period_exactly_closed {
+        get_active_run_for_period(&state.pool, period.start, period.end).await?
+    } else {
+        None
+    };
+    let (payroll_run_id, payroll_run_status, payroll_run_url) = match payroll_run {
+        Some(run) => {
+            let status = match run.status {
+                PayrollRunStatus::Draft => "Draft",
+                PayrollRunStatus::Finalized => "Finalized",
+                PayrollRunStatus::Voided => "Voided",
+            };
+            (
+                Some(run.id),
+                Some(status.to_string()),
+                Some(format!("/admin/payroll/{}", run.id)),
+            )
+        }
+        None => (None, None, None),
+    };
+
     render_page(
         &state,
         &session,
@@ -183,11 +211,21 @@ pub async fn reports_page(
         context! {
             period_label => period.label,
             pay_period_type => if custom_range { "Custom" } else { pay_period_label(settings.pay_period) },
+            settings_pay_period_label => pay_period_label(settings.pay_period),
             start_date => format_date(period.start),
             end_date => format_date(period.end),
             custom_range => custom_range,
             period_closed => period_closed,
             period_exactly_closed => period_exactly_closed,
+            is_canonical_period => is_canonical_period,
+            canonical_period_label => canonical_period_label,
+            has_pending_ot => total_pending_ot_minutes > 0,
+            total_pending_ot_minutes => total_pending_ot_minutes,
+            total_pending_ot_hours => format!("{:.2}", minutes_to_hours_decimal(total_pending_ot_minutes)),
+            payroll_run_id => payroll_run_id,
+            payroll_run_status => payroll_run_status.unwrap_or_default(),
+            payroll_run_url => payroll_run_url.unwrap_or_default(),
+            payroll_ready => period_exactly_closed && is_canonical_period && payroll_run_id.is_none(),
             overlapping_closed_periods => overlapping_closed_rows,
             export_query => export_query_string(period.start, period.end, &query),
             filter_department => query.department.clone().unwrap_or_default(),
