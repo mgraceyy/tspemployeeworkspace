@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use axum::{
     body::Body,
@@ -16,7 +17,7 @@ use dtr::models::UserRole;
 use dtr::services::employees::create_employee;
 use dtr::state::AppState;
 use dtr::templates::engine;
-use sqlx::PgPool;
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower::ServiceExt;
 use tower_sessions::{
     cookie::{Key, SameSite},
@@ -59,12 +60,14 @@ impl Default for TestAppConfig {
 static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 
 pub async fn reset_shared_test_state(pool: &PgPool) {
-    let _ = sqlx::query("DELETE FROM closed_pay_periods")
+    sqlx::query("DELETE FROM closed_pay_periods")
         .execute(pool)
-        .await;
-    let _ = sqlx::query("DELETE FROM rate_limit_events")
+        .await
+        .expect("reset closed_pay_periods");
+    sqlx::query("DELETE FROM rate_limit_events")
         .execute(pool)
-        .await;
+        .await
+        .expect("reset rate_limit_events");
 }
 
 pub fn url_encode(value: &str) -> String {
@@ -112,8 +115,15 @@ pub async fn test_pool() -> Option<PgPool> {
         return Some(pool.clone());
     }
 
-    let pool = dtr::db::connect_with_options(&url, 5).await.ok()?;
-    dtr::db::migrate(&pool).await.ok()?;
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(30))
+        .connect(&url)
+        .await
+        .ok()?;
+    dtr::db::migrate(&pool)
+        .await
+        .expect("test database migrations");
     let _ = TEST_DB_POOL.set(pool);
     let pool = TEST_DB_POOL.get()?;
     reset_shared_test_state(pool).await;
@@ -254,7 +264,11 @@ pub async fn get_with_extra_headers(
 pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
     let (_, login_html, cookies) = get(app, "/login", "").await;
     let csrf = extract_csrf_token(&login_html).expect("csrf token");
-    let body = format!("employee_code={code}&pin={pin}&csrf_token={csrf}");
+    let body = format!(
+        "employee_code={}&pin={}&csrf_token={csrf}",
+        url_encode(code),
+        url_encode(pin)
+    );
     let (status, response, cookies) = post_form(app, "/login", &cookies, &body).await;
     assert_eq!(
         status,

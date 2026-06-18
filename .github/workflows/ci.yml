@@ -34,6 +34,7 @@ jobs:
       SEED_DEFAULT_ADMIN: "false"
       SHARED_RATE_LIMITS: ${{ matrix.shared_rate_limits }}
       RUST_LOG: dtr=warn,tower_http=warn,sqlx=warn
+      RUST_BACKTRACE: 1
 
     steps:
       - uses: actions/checkout@v4
