@@ -197,6 +197,10 @@ async fn shared_postgres_rate_limits_apply_across_app_instances() {
         return;
     };
 
+    let _ = sqlx::query("DELETE FROM rate_limit_events")
+        .execute(&pool)
+        .await;
+
     let config = TestAppConfig {
         shared_rate_limits: true,
         ..TestAppConfig::default()

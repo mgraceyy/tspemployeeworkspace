@@ -9,6 +9,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         shared_rate_limits: ["false", "true"]
 
@@ -63,9 +64,7 @@ jobs:
         run: cargo build --release
 
       - name: Run tests
-        env:
-          RUST_TEST_THREADS: "1"
-        run: cargo test
+        run: cargo test -j 1 -- --test-threads 1
 
   docker:
     runs-on: ubuntu-latest
@@ -135,6 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: docker
     strategy:
+      fail-fast: false
       matrix:
         shared_rate_limits: ["false", "true"]
 
