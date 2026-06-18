@@ -67,7 +67,13 @@ jobs:
       - name: Run tests
         run: |
           set -o pipefail
-          cargo test -j 1 -- --test-threads 1 --nocapture 2>&1 | tee cargo-test.log
+          cargo test -j 1 -- --test-threads 1 --nocapture 2>&1 | tee cargo-test.log || {
+            echo "=== cargo test failed ==="
+            grep -nE "FAILED|panicked at|^failures:|login failed" cargo-test.log || true
+            echo "=== tail cargo-test.log ==="
+            tail -n 150 cargo-test.log
+            exit 1
+          }
       - name: Upload test log on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -106,13 +106,21 @@ pub async fn test_pool() -> Option<PgPool> {
         return Some(pool.clone());
     }
 
-    let pool = PgPoolOptions::new()
+    let pool = match PgPoolOptions::new()
         .max_connections(10)
         .acquire_timeout(Duration::from_secs(30))
         .connect(&url)
         .await
-        .map_err(|e| eprintln!("test database connection failed: {e}"))
-        .ok()?;
+    {
+        Ok(pool) => pool,
+        Err(e) => {
+            if std::env::var_os("CI").is_some() {
+                panic!("test database connection failed in CI: {e}");
+            }
+            eprintln!("test database connection failed: {e}");
+            return None;
+        }
+    };
     dtr::db::migrate(&pool)
         .await
         .expect("test database migrations");
