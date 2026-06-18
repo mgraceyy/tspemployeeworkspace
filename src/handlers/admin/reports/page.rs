@@ -13,7 +13,7 @@ use crate::models::UserRole;
 use crate::services::{
     employees::list_all,
     onboarding::list_distinct_departments,
-    payroll::runs::get_active_run_for_period,
+    payroll::runs::{employees_missing_compensation, get_active_run_for_period},
     payroll_controls::{
         is_period_closed, is_period_exactly_closed, list_overlapping_closed_periods,
         list_report_presets, ReportPreset,
@@ -198,6 +198,9 @@ pub async fn reports_page(
     let (_, _, canonical_period_label) =
         current_pay_period(period.end, settings.pay_period, settings.pay_period_anchor);
     let total_pending_ot_minutes: i64 = rows.iter().map(|r| r.pending_ot_minutes).sum();
+    let mut missing_compensation =
+        employees_missing_compensation(&state.pool, period.end).await?;
+    missing_compensation.sort();
     let payroll_run = if period_exactly_closed {
         get_active_run_for_period(&state.pool, period.start, period.end).await?
     } else {
@@ -253,6 +256,7 @@ pub async fn reports_page(
             employees => employee_options,
             presets => preset_rows,
             rows => build_report_rows(&rows),
+            missing_compensation => missing_compensation,
         },
     )
     .await

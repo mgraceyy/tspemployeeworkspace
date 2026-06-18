@@ -8,12 +8,13 @@
     · <a href="/admin/employees/{{ content.employee_id }}">Account</a>
     · <a href="/admin/employees/{{ content.employee_id }}/profile">Profile</a>
     · <a href="/admin/employees/{{ content.employee_id }}/requirements">Requirements</a>
+    · <a href="/admin/compensation/import">Import CSV</a>
   </p>
 </section>
 
 <section class="panel narrow-panel">
-  <h2>Monthly salary</h2>
-  <p class="hint">All employees are on <strong>monthly</strong> pay. OT is calculated at the hourly equivalent × OT rate (default 132%). No-shows reduce gross pay by one daily rate per day. Sick and vacation days are tracked but do not adjust pay in this version.</p>
+  <h2>Monthly salary &amp; allowances</h2>
+  <p class="hint">All employees are on <strong>monthly</strong> pay. OT is calculated at the hourly equivalent × OT rate (default 132%). No-shows reduce gross pay by one daily rate per day. Transport and meal allowances are prorated per pay period.</p>
   <p class="muted">Daily rate = monthly salary ÷ {{ content.working_days }} working days.</p>
 
   <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation" class="stack">
@@ -21,6 +22,14 @@
     <label>Monthly salary (PHP)
       <input type="text" name="monthly_salary" value="{{ content.monthly_salary }}" required
         inputmode="decimal" placeholder="e.g. 26000.00">
+    </label>
+    <label>Transport allowance (PHP / month)
+      <input type="text" name="transport_allowance" value="{{ content.transport_allowance }}"
+        inputmode="decimal" placeholder="0.00">
+    </label>
+    <label>Meal allowance (PHP / month)
+      <input type="text" name="meal_allowance" value="{{ content.meal_allowance }}"
+        inputmode="decimal" placeholder="0.00">
     </label>
     <label>OT rate (%)
       <input type="number" name="ot_rate_percent" value="{{ content.ot_rate_percent }}" min="100" max="300" step="1">
@@ -32,4 +41,53 @@
     <button type="submit" class="btn btn-primary">Save compensation</button>
   </form>
 </section>
+
+{% if content.history %}
+<section class="panel">
+  <h2>Compensation history</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Effective from</th>
+          <th>Effective to</th>
+          <th>Salary</th>
+          <th>Transport</th>
+          <th>Meal</th>
+          <th>OT %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in content.history %}
+        <tr>
+          <td>{{ row.effective_from }}</td>
+          <td>{% if row.effective_to %}{{ row.effective_to }}{% else %}—{% endif %}</td>
+          <td>PHP {{ row.salary }}</td>
+          <td>PHP {{ row.transport }}</td>
+          <td>PHP {{ row.meal }}</td>
+          <td>{{ row.ot_rate }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if content.deduction_defaults %}
+<section class="panel narrow-panel">
+  <h2>Default payroll deductions</h2>
+  <p class="hint">Applied automatically when a new draft payroll run is created for this employee.</p>
+  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation/deduction-defaults" class="stack">
+    {% include "partials/csrf_field.html" %}
+    {% for dtype in content.deduction_defaults %}
+    <label>{{ dtype.name }} ({{ dtype.code }})
+      <input type="text" name="default_{{ dtype.code_lower }}" value="{{ dtype.amount }}"
+        inputmode="decimal" placeholder="Leave blank for none">
+    </label>
+    {% endfor %}
+    <button type="submit" class="btn btn-secondary">Save defaults</button>
+  </form>
+</section>
+{% endif %}
 {% endblock %}

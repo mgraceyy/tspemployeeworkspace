@@ -5,7 +5,7 @@ use time::Date;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::CompensationProfile;
+use crate::models::{CompensationHistoryRow, CompensationProfile};
 
 pub fn parse_salary_to_cents(input: &str) -> AppResult<i64> {
     crate::services::money::parse_money_to_cents(input, false).map_err(|error| match error {
@@ -19,21 +19,26 @@ pub fn parse_salary_to_cents(input: &str) -> AppResult<i64> {
     })
 }
 
+pub fn parse_allowance_to_cents(input: &str) -> AppResult<i64> {
+    crate::services::money::parse_money_to_cents(input, true)
+}
+
 pub fn format_salary_cents(cents: i64) -> String {
     let whole = cents / 100;
     let frac = (cents % 100).unsigned_abs();
     format!("{whole}.{frac:02}")
 }
 
+const PROFILE_COLUMNS: &str =
+    "employee_id, monthly_salary_cents, ot_rate_percent, transport_allowance_cents, meal_allowance_cents, effective_from";
+
 pub async fn get_compensation(
     pool: &PgPool,
     employee_id: Uuid,
 ) -> AppResult<Option<CompensationProfile>> {
-    sqlx::query_as::<_, CompensationProfile>(
-        "SELECT employee_id, monthly_salary_cents, ot_rate_percent, effective_from
-         FROM compensation_profiles
-         WHERE employee_id = $1",
-    )
+    sqlx::query_as::<_, CompensationProfile>(&format!(
+        "SELECT {PROFILE_COLUMNS} FROM compensation_profiles WHERE employee_id = $1"
+    ))
     .bind(employee_id)
     .fetch_optional(pool)
     .await
@@ -49,11 +54,9 @@ pub async fn get_compensation_map_as_of(
         return Ok(HashMap::new());
     }
 
-    let current = sqlx::query_as::<_, CompensationProfile>(
-        "SELECT employee_id, monthly_salary_cents, ot_rate_percent, effective_from
-         FROM compensation_profiles
-         WHERE employee_id = ANY($1)",
-    )
+    let current = sqlx::query_as::<_, CompensationProfile>(&format!(
+        "SELECT {PROFILE_COLUMNS} FROM compensation_profiles WHERE employee_id = ANY($1)"
+    ))
     .bind(employee_ids)
     .fetch_all(pool)
     .await
@@ -73,7 +76,8 @@ pub async fn get_compensation_map_as_of(
 
     if !need_history.is_empty() {
         let history = sqlx::query_as::<_, CompensationProfile>(
-            "SELECT DISTINCT ON (employee_id) employee_id, monthly_salary_cents, ot_rate_percent, effective_from
+            "SELECT DISTINCT ON (employee_id) employee_id, monthly_salary_cents, ot_rate_percent,
+                    transport_allowance_cents, meal_allowance_cents, effective_from
              FROM compensation_history
              WHERE employee_id = ANY($1)
                AND effective_from <= $2
@@ -106,7 +110,8 @@ pub async fn get_compensation_as_of(
     }
 
     sqlx::query_as::<_, CompensationProfile>(
-        "SELECT employee_id, monthly_salary_cents, ot_rate_percent, effective_from
+        "SELECT employee_id, monthly_salary_cents, ot_rate_percent, transport_allowance_cents,
+                meal_allowance_cents, effective_from
          FROM compensation_history
          WHERE employee_id = $1
            AND effective_from <= $2
@@ -121,11 +126,30 @@ pub async fn get_compensation_as_of(
     .map_err(|e| AppError::Internal(e.into()))
 }
 
+pub async fn list_history(
+    pool: &PgPool,
+    employee_id: Uuid,
+) -> AppResult<Vec<CompensationHistoryRow>> {
+    sqlx::query_as::<_, CompensationHistoryRow>(
+        "SELECT id, employee_id, monthly_salary_cents, ot_rate_percent, transport_allowance_cents,
+                meal_allowance_cents, effective_from, effective_to, created_at
+         FROM compensation_history
+         WHERE employee_id = $1
+         ORDER BY effective_from DESC, created_at DESC",
+    )
+    .bind(employee_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))
+}
+
 pub async fn upsert_profile(
     pool: &PgPool,
     employee_id: Uuid,
     monthly_salary_cents: i64,
     ot_rate_percent: i32,
+    transport_allowance_cents: i64,
+    meal_allowance_cents: i64,
     effective_from: Date,
     updated_by: Uuid,
 ) -> AppResult<()> {
@@ -133,6 +157,9 @@ pub async fn upsert_profile(
         return Err(AppError::bad_request(
             "OT rate must be between 100% and 300%",
         ));
+    }
+    if transport_allowance_cents < 0 || meal_allowance_cents < 0 {
+        return Err(AppError::bad_request("Allowances cannot be negative"));
     }
 
     let existing = get_compensation(pool, employee_id).await?;
@@ -146,12 +173,15 @@ pub async fn upsert_profile(
         if closes_on >= old.effective_from {
             sqlx::query(
                 "INSERT INTO compensation_history
-                    (employee_id, monthly_salary_cents, ot_rate_percent, effective_from, effective_to, changed_by)
-                 VALUES ($1, $2, $3, $4, $5, $6)",
+                    (employee_id, monthly_salary_cents, ot_rate_percent, transport_allowance_cents,
+                     meal_allowance_cents, effective_from, effective_to, changed_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(employee_id)
             .bind(old.monthly_salary_cents)
             .bind(old.ot_rate_percent)
+            .bind(old.transport_allowance_cents)
+            .bind(old.meal_allowance_cents)
             .bind(old.effective_from)
             .bind(closes_on)
             .bind(updated_by)
@@ -163,11 +193,14 @@ pub async fn upsert_profile(
 
     sqlx::query(
         "INSERT INTO compensation_profiles
-            (employee_id, monthly_salary_cents, ot_rate_percent, effective_from, updated_by)
-         VALUES ($1, $2, $3, $4, $5)
+            (employee_id, monthly_salary_cents, ot_rate_percent, transport_allowance_cents,
+             meal_allowance_cents, effective_from, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (employee_id) DO UPDATE SET
             monthly_salary_cents = EXCLUDED.monthly_salary_cents,
             ot_rate_percent = EXCLUDED.ot_rate_percent,
+            transport_allowance_cents = EXCLUDED.transport_allowance_cents,
+            meal_allowance_cents = EXCLUDED.meal_allowance_cents,
             effective_from = EXCLUDED.effective_from,
             updated_by = EXCLUDED.updated_by,
             updated_at = now()",
@@ -175,11 +208,76 @@ pub async fn upsert_profile(
     .bind(employee_id)
     .bind(monthly_salary_cents)
     .bind(ot_rate_percent)
+    .bind(transport_allowance_cents)
+    .bind(meal_allowance_cents)
     .bind(effective_from)
     .bind(updated_by)
     .execute(&mut *tx)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct DeductionDefaultInput {
+    pub deduction_type_id: Uuid,
+    pub amount_cents: i64,
+}
+
+pub async fn list_deduction_defaults(
+    pool: &PgPool,
+    employee_id: Uuid,
+) -> AppResult<Vec<(Uuid, i64)>> {
+    let rows: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT deduction_type_id, amount_cents
+         FROM employee_deduction_defaults
+         WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(rows)
+}
+
+pub async fn save_deduction_defaults(
+    pool: &PgPool,
+    employee_id: Uuid,
+    editor_id: Uuid,
+    inputs: &[DeductionDefaultInput],
+) -> AppResult<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+    sqlx::query("DELETE FROM employee_deduction_defaults WHERE employee_id = $1")
+        .bind(employee_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+    for input in inputs {
+        if input.amount_cents <= 0 {
+            continue;
+        }
+        sqlx::query(
+            "INSERT INTO employee_deduction_defaults
+                (employee_id, deduction_type_id, amount_cents, updated_by)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(employee_id)
+        .bind(input.deduction_type_id)
+        .bind(input.amount_cents)
+        .bind(editor_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    }
 
     tx.commit()
         .await

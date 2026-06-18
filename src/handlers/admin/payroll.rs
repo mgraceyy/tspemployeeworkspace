@@ -25,7 +25,8 @@ use crate::services::{
         void_draft_run,
     },
     payroll::{
-        build_finalized_run_csv, get_line_for_run, list_deduction_types, list_deductions_for_line,
+        build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, get_line_for_run,
+        is_draft_attendance_stale, list_deduction_types, list_deductions_for_line,
         parse_optional_amount_to_cents, save_line_deductions, DeductionInput,
     },
     reports::period_label_for_range,
@@ -124,7 +125,7 @@ pub async fn payroll_runs_page(
             runs => run_rows,
             candidates => candidate_rows,
             missing_compensation => missing_comp,
-            can_create => !candidates.is_empty() && missing_comp.is_empty(),
+            can_create => !candidates.is_empty(),
         },
     )
     .await
@@ -187,6 +188,7 @@ pub async fn payroll_run_page(
     }
     let lines = list_lines_for_run(&state.pool, run_id).await?;
     let pending_ot = total_pending_ot_minutes(&lines);
+    let attendance_stale = is_draft_attendance_stale(&state.pool, &run).await?;
     let inactive_count = inactive_employee_count(&lines);
     let total_gross = total_gross_cents(&lines);
     let total_deductions = total_deduction_cents(&lines);
@@ -205,6 +207,8 @@ pub async fn payroll_run_page(
                 approved_ot_minutes => l.approved_ot_minutes,
                 pending_ot_minutes => l.pending_ot_minutes,
                 base_pay => format_salary_cents(l.base_pay_cents),
+                allowance => format_salary_cents(l.allowance_cents),
+                has_allowance => l.allowance_cents > 0,
                 no_show_deduction => format_salary_cents(l.no_show_deduction_cents),
                 ot_pay => format_salary_cents(l.ot_pay_cents),
                 gross_pay => format_salary_cents(l.gross_pay_cents),
@@ -243,9 +247,66 @@ pub async fn payroll_run_page(
             has_inactive_employees => inactive_count > 0,
             inactive_employee_count => inactive_count,
             is_finalized => run.status == PayrollRunStatus::Finalized,
+            attendance_stale => attendance_stale,
         },
     )
     .await
+}
+
+pub async fn export_payroll_bank_csv(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path(run_id): Path<Uuid>,
+) -> AppResult<Response> {
+    let settings = get_settings(&state.pool).await?;
+    let run = get_run(&state.pool, run_id).await?;
+    if run.status == PayrollRunStatus::Voided {
+        return Err(AppError::NotFound);
+    }
+    let period_label = period_label_for_range(run.period_start, run.period_end);
+    let csv_bytes = build_bank_upload_csv(&state.pool, &run).await?;
+    let filename = format!(
+        "{}-bank-upload-{}.csv",
+        settings.company_name.replace(' ', "-"),
+        period_label.replace(' ', "-")
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        csv_bytes,
+    )
+        .into_response())
+}
+
+pub async fn export_payroll_journal_csv(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path(run_id): Path<Uuid>,
+) -> AppResult<Response> {
+    let settings = get_settings(&state.pool).await?;
+    let run = get_run(&state.pool, run_id).await?;
+    if run.status == PayrollRunStatus::Voided {
+        return Err(AppError::NotFound);
+    }
+    let period_label = period_label_for_range(run.period_start, run.period_end);
+    let csv_bytes = build_journal_export_csv(&state.pool, &run, &period_label).await?;
+    let filename = format!(
+        "{}-journal-{}.csv",
+        settings.company_name.replace(' ', "-"),
+        period_label.replace(' ', "-")
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "text/csv".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        csv_bytes,
+    )
+        .into_response())
 }
 
 pub async fn export_payroll_run_csv(

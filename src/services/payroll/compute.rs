@@ -16,6 +16,7 @@ pub const STANDARD_DAILY_MINUTES: i64 = 480;
 #[derive(Debug, Clone, Copy)]
 pub struct GrossPayInput {
     pub monthly_salary_cents: i64,
+    pub monthly_allowance_cents: i64,
     pub ot_rate_percent: i32,
     pub pay_period: PayPeriodType,
     pub approved_ot_minutes: i64,
@@ -77,15 +78,23 @@ pub fn ot_pay_cents(
     )
 }
 
+pub fn allowance_pay_cents_for_period(
+    monthly_allowance_cents: i64,
+    pay_period: PayPeriodType,
+) -> i64 {
+    base_pay_cents_for_period(monthly_allowance_cents, pay_period)
+}
+
 pub fn gross_pay_cents(input: &GrossPayInput) -> i64 {
     let base = base_pay_cents_for_period(input.monthly_salary_cents, input.pay_period);
+    let allowance = allowance_pay_cents_for_period(input.monthly_allowance_cents, input.pay_period);
     let deduction = no_show_deduction_cents(input.monthly_salary_cents, input.no_show_days);
     let ot = ot_pay_cents(
         input.monthly_salary_cents,
         input.approved_ot_minutes,
         input.ot_rate_percent,
     );
-    (base - deduction + ot).max(0)
+    (base + allowance - deduction + ot).max(0)
 }
 
 #[cfg(test)]
@@ -112,6 +121,7 @@ mod tests {
     fn no_show_reduces_gross() {
         let input = GrossPayInput {
             monthly_salary_cents: SALARY,
+            monthly_allowance_cents: 0,
             ot_rate_percent: 132,
             pay_period: PayPeriodType::Semimonthly,
             approved_ot_minutes: 0,
@@ -132,6 +142,7 @@ mod tests {
     fn full_gross_with_ot_and_no_show() {
         let input = GrossPayInput {
             monthly_salary_cents: SALARY,
+            monthly_allowance_cents: 0,
             ot_rate_percent: 132,
             pay_period: PayPeriodType::Semimonthly,
             approved_ot_minutes: 60,
@@ -161,6 +172,7 @@ mod tests {
     fn leave_days_do_not_affect_gross() {
         let with_leave = GrossPayInput {
             monthly_salary_cents: SALARY,
+            monthly_allowance_cents: 0,
             ot_rate_percent: 132,
             pay_period: PayPeriodType::Monthly,
             approved_ot_minutes: 0,

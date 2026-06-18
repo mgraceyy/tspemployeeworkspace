@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Import Compensation</h1>
+  <p class="muted">Upload a CSV to bulk-update monthly salary, allowances, and OT rates.</p>
+  <p><a href="/admin/employees">← Employees</a></p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>CSV format</h2>
+  <p class="hint">Required columns: <code>employee_code</code>, <code>monthly_salary</code>, <code>effective_from</code>. Optional: <code>ot_rate_percent</code>, <code>transport_allowance</code>, <code>meal_allowance</code>.</p>
+  <form method="post" action="/admin/compensation/import" enctype="multipart/form-data" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>CSV file
+      <input type="file" name="csv_file" accept=".csv,text/csv" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Preview import</button>
+  </form>
+</section>
+
+{% if content.has_preview %}
+<section class="panel">
+  <h2>Preview</h2>
+  <p>{{ content.valid_count }} valid row(s), {{ content.error_count }} error(s).</p>
+  {% if content.can_apply %}
+  <form method="post" action="/admin/compensation/import/apply" class="inline-form"
+    onsubmit="return confirm('Apply compensation changes for {{ content.valid_count }} employee(s)?');">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn btn-primary">Apply import</button>
+  </form>
+  {% elif content.error_count > 0 %}
+  <p class="hint">Fix all errors before applying.</p>
+  {% endif %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Salary</th>
+          <th>Transport</th>
+          <th>Meal</th>
+          <th>OT %</th>
+          <th>Effective</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in content.rows %}
+        <tr{% if row.has_error %} class="row-error"{% endif %}>
+          <td>{{ row.line_number }}</td>
+          <td>{{ row.employee_code }}</td>
+          <td>{{ row.full_name or "—" }}</td>
+          <td>{{ row.monthly_salary }}</td>
+          <td>{{ row.transport_allowance }}</td>
+          <td>{{ row.meal_allowance }}</td>
+          <td>{{ row.ot_rate_percent }}</td>
+          <td>{{ row.effective_from }}</td>
+          <td>{% if row.has_error %}<span class="error-text">{{ row.error }}</span>{% else %}OK{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,4 +1,7 @@
-use axum::extract::{Path, State};
+use axum::{
+    extract::{Path, State},
+    response::{IntoResponse, Response},
+};
 use minijinja::context;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -9,8 +12,12 @@ use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     compensation::format_salary_cents,
     hours::format_minutes,
-    payroll::payslips::{
-        get_payslip_for_admin, get_payslip_for_employee, list_payslips_for_employee, PayslipDetail,
+    payroll::{
+        build_payslip_pdf,
+        payslips::{
+            get_payslip_for_admin, get_payslip_for_employee, list_payslips_for_employee,
+            PayslipDetail,
+        },
     },
     reports::period_label_for_range,
     settings::get_settings,
@@ -24,6 +31,7 @@ fn payslip_template_context(
     timezone: &str,
     back_url: &str,
     back_label: &str,
+    pdf_url: &str,
 ) -> minijinja::Value {
     let deduction_rows: Vec<_> = payslip
         .deductions
@@ -51,6 +59,8 @@ fn payslip_template_context(
         approved_ot_minutes => format_minutes(payslip.approved_ot_minutes),
         no_show_days => payslip.no_show_days,
         base_pay => format_salary_cents(payslip.base_pay_cents),
+        has_allowance => payslip.allowance_cents > 0,
+        allowance => format_salary_cents(payslip.allowance_cents),
         has_no_show_deduction => payslip.no_show_deduction_cents > 0,
         no_show_deduction => format_salary_cents(payslip.no_show_deduction_cents),
         ot_pay => format_salary_cents(payslip.ot_pay_cents),
@@ -67,6 +77,7 @@ fn payslip_template_context(
         ),
         back_url => back_url,
         back_label => back_label,
+        pdf_url => pdf_url,
     }
 }
 
@@ -77,6 +88,7 @@ pub async fn render_payslip_page(
     payslip: PayslipDetail,
     back_url: &str,
     back_label: &str,
+    pdf_url: &str,
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
     render_page(
@@ -92,6 +104,7 @@ pub async fn render_payslip_page(
             settings.timezone.as_str(),
             back_url,
             back_label,
+            pdf_url,
         ),
     )
     .await
@@ -152,8 +165,55 @@ pub async fn view_my_payslip(
         payslip,
         "/me/payslips",
         "My payslips",
+        &format!("/me/payslips/{line_id}/payslip.pdf"),
     )
     .await
+}
+
+pub async fn export_my_payslip_pdf(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(line_id): Path<Uuid>,
+) -> AppResult<Response> {
+    let payslip = get_payslip_for_employee(&state.pool, user.employee_id, line_id).await?;
+    let pdf_bytes = build_payslip_pdf(&state.pool, line_id, user.employee_id).await?;
+    let filename = format!(
+        "payslip-{}-{}.pdf",
+        payslip.employee_code,
+        period_label_for_range(payslip.period_start, payslip.period_end).replace(' ', "-")
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "application/pdf".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        pdf_bytes,
+    )
+        .into_response())
+}
+
+pub async fn export_admin_payslip_pdf(
+    State(state): State<AppState>,
+    AuthUser(_user): AuthUser,
+    Path((run_id, line_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<Response> {
+    let payslip = get_payslip_for_admin(&state.pool, run_id, line_id).await?;
+    let pdf_bytes = build_payslip_pdf(&state.pool, line_id, payslip.employee_id).await?;
+    let filename = format!(
+        "payslip-{}-{}.pdf",
+        payslip.employee_code,
+        period_label_for_range(payslip.period_start, payslip.period_end).replace(' ', "-")
+    );
+    let disposition = format!("attachment; filename=\"{filename}\"");
+    Ok((
+        [
+            (axum::http::header::CONTENT_TYPE, "application/pdf".to_string()),
+            (axum::http::header::CONTENT_DISPOSITION, disposition),
+        ],
+        pdf_bytes,
+    )
+        .into_response())
 }
 
 pub async fn admin_payslip_page(
@@ -170,6 +230,7 @@ pub async fn admin_payslip_page(
         payslip,
         &format!("/admin/payroll/{run_id}"),
         "Payroll run",
+        &format!("/admin/payroll/{run_id}/lines/{line_id}/payslip.pdf"),
     )
     .await
 }

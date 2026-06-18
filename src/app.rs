@@ -97,6 +97,10 @@ where
         .route("/me/eod/{report_id}", get(eod::view_eod_detail))
         .route("/me/payslips", get(payslips::my_payslips_page))
         .route("/me/payslips/{line_id}", get(payslips::view_my_payslip))
+        .route(
+            "/me/payslips/{line_id}/payslip.pdf",
+            get(payslips::export_my_payslip_pdf),
+        )
         .route("/notifications", get(notifications::notifications_page))
         .route(
             "/notifications/dismiss",
@@ -195,6 +199,27 @@ where
             get(admin::compensation_page).post(admin::save_compensation_action),
         )
         .route(
+            "/admin/employees/{employee_id}/compensation/deduction-defaults",
+            post(admin::save_deduction_defaults_action),
+        )
+        .route(
+            "/admin/compensation/import",
+            get(admin::compensation_import_page)
+                .post(admin::compensation_import_preview_action),
+        )
+        .route(
+            "/admin/compensation/import/apply",
+            post(admin::compensation_import_apply_action),
+        )
+        .route(
+            "/admin/deduction-types",
+            get(admin::deduction_types_page).post(admin::create_deduction_type_action),
+        )
+        .route(
+            "/admin/deduction-types/{type_id}/toggle",
+            post(admin::toggle_deduction_type_action),
+        )
+        .route(
             "/admin/employees/{employee_id}/requirements",
             get(requirements::admin_employee_requirements),
         )
@@ -257,6 +282,18 @@ where
         .route(
             "/admin/payroll/{run_id}/export.csv",
             get(admin::export_payroll_run_csv),
+        )
+        .route(
+            "/admin/payroll/{run_id}/export-bank.csv",
+            get(admin::export_payroll_bank_csv),
+        )
+        .route(
+            "/admin/payroll/{run_id}/export-journal.csv",
+            get(admin::export_payroll_journal_csv),
+        )
+        .route(
+            "/admin/payroll/{run_id}/lines/{line_id}/payslip.pdf",
+            get(admin::export_admin_payslip_pdf),
         )
         .route("/admin/reports", get(admin::reports_page))
         .route(

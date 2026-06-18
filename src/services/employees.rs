@@ -340,6 +340,8 @@ pub async fn seed_e2e_fixtures(pool: &PgPool, enabled: bool) -> AppResult<()> {
                     employee_id,
                     2_500_000,
                     132,
+                    0,
+                    0,
                     effective,
                     admin.id,
                 )

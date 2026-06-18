@@ -13,7 +13,7 @@ pub mod settings;
 pub mod shift;
 pub mod time_entry;
 
-pub use compensation::CompensationProfile;
+pub use compensation::{CompensationHistoryRow, CompensationProfile};
 pub use deduction::{DeductionType, PayrollDeduction, PayrollDeductionWithType};
 pub use employee::{Employee, EmployeeSummary, UserRole};
 pub use holiday::CompanyHoliday;

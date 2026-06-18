@@ -9,10 +9,12 @@ use crate::services::payroll_controls::is_period_exactly_closed;
 use crate::services::reports::{assert_canonical_pay_period, payroll_summary, PayrollFilters};
 
 use super::compute::{
-    base_pay_cents_for_period, gross_pay_cents, no_show_deduction_cents, ot_pay_cents,
-    GrossPayInput,
+    allowance_pay_cents_for_period, base_pay_cents_for_period, gross_pay_cents,
+    no_show_deduction_cents, ot_pay_cents, GrossPayInput,
 };
-use super::deductions::refresh_all_line_net_pay;
+use super::deductions::{apply_deduction_defaults_for_run, refresh_all_line_net_pay};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PayrollRunListItem {
@@ -116,7 +118,7 @@ pub async fn get_active_run_for_period(
 pub async fn get_run(pool: &PgPool, run_id: Uuid) -> AppResult<PayrollRun> {
     sqlx::query_as::<_, PayrollRun>(
         "SELECT id, period_start, period_end, status, note, created_by, created_at,
-                finalized_at, finalized_by
+                finalized_at, finalized_by, attendance_snapshot_hash
          FROM payroll_runs WHERE id = $1",
     )
     .bind(run_id)
@@ -134,7 +136,7 @@ pub async fn list_lines_for_run(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
                 e.is_active AS employee_is_active,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
-                l.base_pay_cents, l.no_show_deduction_cents, l.ot_pay_cents,
+                l.base_pay_cents, l.allowance_cents, l.no_show_deduction_cents, l.ot_pay_cents,
                 l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
@@ -171,15 +173,6 @@ pub async fn create_draft_run(
     }
     assert_canonical_pay_period(settings, period_start, period_end)?;
 
-    let missing = employees_missing_compensation(pool, period_end).await?;
-    if !missing.is_empty() {
-        return Err(AppError::bad_request(format!(
-            "Set compensation effective on {} for all active employees before running payroll. Missing: {}",
-            crate::services::timezone::format_date(period_end),
-            missing.join(", ")
-        )));
-    }
-
     let summary_rows =
         payroll_summary(pool, period_start, period_end, &PayrollFilters::default()).await?;
 
@@ -188,15 +181,17 @@ pub async fn create_draft_run(
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
 
+    let snapshot_hash = attendance_snapshot_hash(&summary_rows);
     let run_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO payroll_runs (period_start, period_end, note, created_by)
-         VALUES ($1, $2, $3, $4)
+        "INSERT INTO payroll_runs (period_start, period_end, note, created_by, attendance_snapshot_hash)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id",
     )
     .bind(period_start)
     .bind(period_end)
     .bind(note.map(str::trim).filter(|n| !n.is_empty()))
     .bind(created_by)
+    .bind(&snapshot_hash)
     .fetch_one(&mut *tx)
     .await
     .map_err(map_payroll_run_conflict)?;
@@ -225,6 +220,8 @@ pub async fn create_draft_run(
     tx.commit()
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
+
+    apply_deduction_defaults_for_run(pool, run_id).await?;
     Ok(run_id)
 }
 
@@ -251,7 +248,7 @@ async fn insert_line_for_summary(
     tx: &mut Transaction<'_, Postgres>,
     run_id: Uuid,
     row: &crate::services::reports::PayrollRow,
-    period_end: Date,
+    _period_end: Date,
     settings: &CompanySettings,
     employee_map: &std::collections::HashMap<String, Uuid>,
     compensation_map: &std::collections::HashMap<Uuid, crate::models::CompensationProfile>,
@@ -263,15 +260,17 @@ async fn insert_line_for_summary(
             AppError::bad_request(format!("Active employee not found: {}", row.employee_code))
         })?;
 
-    let comp = compensation_map.get(&employee_id).ok_or_else(|| {
-        AppError::bad_request(format!(
-            "Missing compensation effective on {} for {}",
-            crate::services::timezone::format_date(period_end),
-            row.employee_code
-        ))
-    })?;
+    let Some(comp) = compensation_map.get(&employee_id) else {
+        tracing::warn!(
+            employee_code = %row.employee_code,
+            "Skipping payroll line: no compensation effective on period end"
+        );
+        return Ok(());
+    };
 
     let base = base_pay_cents_for_period(comp.monthly_salary_cents, settings.pay_period);
+    let allowance =
+        allowance_pay_cents_for_period(comp.monthly_allowance_cents(), settings.pay_period);
     let no_show_ded = no_show_deduction_cents(comp.monthly_salary_cents, row.no_show_days);
     let ot = ot_pay_cents(
         comp.monthly_salary_cents,
@@ -280,6 +279,7 @@ async fn insert_line_for_summary(
     );
     let gross = gross_pay_cents(&GrossPayInput {
         monthly_salary_cents: comp.monthly_salary_cents,
+        monthly_allowance_cents: comp.monthly_allowance_cents(),
         ot_rate_percent: comp.ot_rate_percent,
         pay_period: settings.pay_period,
         approved_ot_minutes: row.approved_ot_minutes,
@@ -289,9 +289,9 @@ async fn insert_line_for_summary(
     sqlx::query(
         "INSERT INTO payroll_lines
             (run_id, employee_id, regular_minutes, approved_ot_minutes, pending_ot_minutes,
-             no_show_days, base_pay_cents, no_show_deduction_cents, ot_pay_cents,
+             no_show_days, base_pay_cents, allowance_cents, no_show_deduction_cents, ot_pay_cents,
              gross_pay_cents, net_pay_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
     )
     .bind(run_id)
     .bind(employee_id)
@@ -300,6 +300,7 @@ async fn insert_line_for_summary(
     .bind(row.pending_ot_minutes as i32)
     .bind(row.no_show_days as i32)
     .bind(base)
+    .bind(allowance)
     .bind(no_show_ded)
     .bind(ot)
     .bind(gross)
@@ -409,4 +410,34 @@ pub fn total_pending_ot_minutes(lines: &[PayrollLineWithEmployee]) -> i32 {
 
 pub fn inactive_employee_count(lines: &[PayrollLineWithEmployee]) -> usize {
     lines.iter().filter(|l| !l.employee_is_active).count()
+}
+
+pub fn attendance_snapshot_hash(rows: &[crate::services::reports::PayrollRow]) -> String {
+    let mut sorted: Vec<_> = rows.iter().collect();
+    sorted.sort_by(|a, b| a.employee_code.cmp(&b.employee_code));
+    let mut hasher = DefaultHasher::new();
+    for row in sorted {
+        row.employee_code.hash(&mut hasher);
+        row.regular_minutes.hash(&mut hasher);
+        row.approved_ot_minutes.hash(&mut hasher);
+        row.pending_ot_minutes.hash(&mut hasher);
+        row.no_show_days.hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
+}
+
+pub async fn is_draft_attendance_stale(
+    pool: &PgPool,
+    run: &PayrollRun,
+) -> AppResult<bool> {
+    if run.status != PayrollRunStatus::Draft {
+        return Ok(false);
+    }
+    let Some(stored) = run.attendance_snapshot_hash.as_deref() else {
+        return Ok(false);
+    };
+    let current_rows =
+        payroll_summary(pool, run.period_start, run.period_end, &PayrollFilters::default())
+            .await?;
+    Ok(stored != attendance_snapshot_hash(&current_rows))
 }

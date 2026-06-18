@@ -63,7 +63,7 @@ async fn ensure_all_active_have_compensation(pool: &sqlx::PgPool, admin_id: Uuid
     .unwrap_or_default();
     for id in ids {
         let _ = dtr::services::compensation::upsert_profile(
-            pool, id, 1_000_000, 132, effective, admin_id,
+            pool, id, 1_000_000, 132, 0, 0, effective, admin_id,
         )
         .await;
     }

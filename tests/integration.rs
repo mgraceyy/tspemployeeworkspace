@@ -1468,7 +1468,7 @@ async fn compensation_profile_persists_and_gross_pay_follows_policy() {
     .expect("employee");
 
     let effective = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
-    upsert_profile(&pool, employee.id, 2_600_000, 132, effective, admin.id)
+    upsert_profile(&pool, employee.id, 2_600_000, 132, 0, 0, effective, admin.id)
         .await
         .expect("upsert compensation");
 
@@ -1481,6 +1481,7 @@ async fn compensation_profile_persists_and_gross_pay_follows_policy() {
 
     let gross = gross_pay_cents(&GrossPayInput {
         monthly_salary_cents: profile.monthly_salary_cents,
+        monthly_allowance_cents: profile.monthly_allowance_cents(),
         ot_rate_percent: profile.ot_rate_percent,
         pay_period: PayPeriodType::Semimonthly,
         approved_ot_minutes: 60,
@@ -1545,7 +1546,7 @@ async fn ensure_all_active_have_compensation(pool: &PgPool, admin_id: Uuid, effe
     .await
     .unwrap_or_default();
     for id in ids {
-        let _ = upsert_profile(pool, id, 1_000_000, 132, effective, admin_id).await;
+        let _ = upsert_profile(pool, id, 1_000_000, 132, 0, 0, effective, admin_id).await;
     }
 }
 
@@ -2005,6 +2006,8 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
         employee.id,
         1_000_000,
         132,
+        0,
+        0,
         future_effective,
         admin.id,
     )
@@ -2028,10 +2031,16 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
     .await
     .expect("close");
 
-    let err = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
         .await
-        .expect_err("future compensation blocks draft");
-    assert!(matches!(err, AppError::BadRequest(msg) if msg.contains(&emp_code.to_uppercase())));
+        .expect("draft with missing effective comp");
+    let lines = list_lines_for_run(&pool, run_id)
+        .await
+        .expect("lines");
+    assert!(
+        !lines.iter().any(|l| l.employee_code == emp_code.to_uppercase()),
+        "employee without effective compensation should be skipped"
+    );
 
     cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
     let _ = sqlx::query("DELETE FROM compensation_profiles WHERE employee_id = $1")
@@ -2076,10 +2085,10 @@ async fn get_compensation_as_of_uses_history_when_current_is_future_dated() {
     let old_effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
     let new_effective = Date::from_calendar_date(2026, Month::July, 1).unwrap();
 
-    upsert_profile(&pool, employee.id, 2_000_000, 132, old_effective, admin.id)
+    upsert_profile(&pool, employee.id, 2_000_000, 132, 0, 0, old_effective, admin.id)
         .await
         .expect("initial comp");
-    upsert_profile(&pool, employee.id, 3_000_000, 150, new_effective, admin.id)
+    upsert_profile(&pool, employee.id, 3_000_000, 150, 0, 0, new_effective, admin.id)
         .await
         .expect("raise comp");
 

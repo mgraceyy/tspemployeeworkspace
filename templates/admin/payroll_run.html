@@ -13,6 +13,12 @@
 </div>
 {% endif %}
 
+{% if content.attendance_stale %}
+<div class="alert alert-warning">
+  <strong>Attendance changed</strong> since this draft was created. Void and recreate the run if gross pay should reflect the latest clock data.
+</div>
+{% endif %}
+
 {% if content.has_inactive_employees %}
 <div class="alert alert-warning">
   <strong>{{ content.inactive_employee_count }}</strong> employee line(s) belong to deactivated accounts (snapshot from when this draft was created).
@@ -26,7 +32,11 @@
   <p>Total deductions: <strong>PHP {{ content.total_deductions }}</strong></p>
   <p>Total net: <strong>PHP {{ content.total_net }}</strong></p>
   {% if content.is_finalized %}
-  <p><a href="/admin/payroll/{{ content.run_id }}/export.csv" class="btn btn-primary">Download payroll CSV</a></p>
+  <div class="inline-form">
+    <a href="/admin/payroll/{{ content.run_id }}/export.csv" class="btn btn-primary">Payroll CSV</a>
+    <a href="/admin/payroll/{{ content.run_id }}/export-bank.csv" class="btn btn-secondary">Bank upload CSV</a>
+    <a href="/admin/payroll/{{ content.run_id }}/export-journal.csv" class="btn btn-secondary">Journal CSV</a>
+  </div>
   {% elif content.is_draft %}
   <p class="hint">Enter deductions per employee before finalizing. Net pay = gross − deductions.</p>
   <p class="hint">Gross pay is a snapshot from when this draft was created. If attendance, OT, or compensation changed, void this draft, reopen the period in Reports, fix the data, close again, then create a new run.</p>
@@ -59,6 +69,7 @@
         <th>No-show</th>
         <th>Appr. OT (min)</th>
         <th>Base</th>
+        <th>Allowance</th>
         <th>No-show ded.</th>
         <th>OT pay</th>
         <th>Gross</th>
@@ -76,6 +87,7 @@
         <td>{{ line.no_show_days }}</td>
         <td>{{ line.approved_ot_minutes }}{% if line.pending_ot_minutes > 0 %} <span class="muted">(+{{ line.pending_ot_minutes }} pending)</span>{% endif %}</td>
         <td>{{ line.base_pay }}</td>
+        <td>{% if line.has_allowance %}{{ line.allowance }}{% else %}—{% endif %}</td>
         <td>{% if line.no_show_deduction != "0.00" %}-{{ line.no_show_deduction }}{% else %}—{% endif %}</td>
         <td>{{ line.ot_pay }}</td>
         <td><strong>{{ line.gross_pay }}</strong></td>
@@ -86,6 +98,7 @@
           <a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}">Deductions</a>
           {% else %}
           <a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}/payslip">Payslip</a>
+          · <a href="/admin/payroll/{{ content.run_id }}/lines/{{ line.line_id }}/payslip.pdf">PDF</a>
           {% endif %}
         </td>
       </tr>

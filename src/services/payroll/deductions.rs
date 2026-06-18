@@ -19,10 +19,141 @@ pub fn parse_optional_amount_to_cents(input: &str) -> AppResult<i64> {
 const MAX_DEDUCTION_NOTE_LEN: usize = 200;
 
 pub async fn list_deduction_types(pool: &PgPool) -> AppResult<Vec<DeductionType>> {
-    sqlx::query_as::<_, DeductionType>("SELECT id, code, name FROM deduction_types ORDER BY code")
+    sqlx::query_as::<_, DeductionType>(
+        "SELECT id, code, name, is_active, sort_order
+         FROM deduction_types
+         WHERE is_active = TRUE
+         ORDER BY sort_order, code",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))
+}
+
+pub async fn list_all_deduction_types(pool: &PgPool) -> AppResult<Vec<DeductionType>> {
+    sqlx::query_as::<_, DeductionType>(
+        "SELECT id, code, name, is_active, sort_order
+         FROM deduction_types
+         ORDER BY sort_order, code",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))
+}
+
+pub async fn create_deduction_type(
+    pool: &PgPool,
+    code: &str,
+    name: &str,
+) -> AppResult<DeductionType> {
+    let code = code.trim().to_uppercase();
+    let name = name.trim();
+    if code.is_empty() || name.is_empty() {
+        return Err(AppError::bad_request("Code and name are required"));
+    }
+    sqlx::query_as::<_, DeductionType>(
+        "INSERT INTO deduction_types (code, name, sort_order)
+         VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 10 FROM deduction_types))
+         RETURNING id, code, name, is_active, sort_order",
+    )
+    .bind(&code)
+    .bind(name)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| {
+        if let sqlx::Error::Database(db) = &e {
+            if db.constraint() == Some("deduction_types_code_key") {
+                return AppError::bad_request("Deduction code already exists");
+            }
+        }
+        AppError::Internal(e.into())
+    })
+}
+
+pub async fn set_deduction_type_active(
+    pool: &PgPool,
+    type_id: Uuid,
+    is_active: bool,
+) -> AppResult<()> {
+    let updated = sqlx::query("UPDATE deduction_types SET is_active = $2 WHERE id = $1")
+        .bind(type_id)
+        .bind(is_active)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    Ok(())
+}
+
+pub async fn apply_deduction_defaults_for_run(pool: &PgPool, run_id: Uuid) -> AppResult<()> {
+    let lines = sqlx::query_as::<_, (Uuid, Uuid)>(
+        "SELECT l.id, l.employee_id FROM payroll_lines l WHERE l.run_id = $1",
+    )
+    .bind(run_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    for (line_id, employee_id) in lines {
+        let existing: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM payroll_deductions WHERE line_id = $1",
+        )
+        .bind(line_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+        if existing > 0 {
+            continue;
+        }
+
+        let defaults: Vec<(Uuid, i64)> = sqlx::query_as(
+            "SELECT d.deduction_type_id, d.amount_cents
+             FROM employee_deduction_defaults d
+             JOIN deduction_types t ON t.id = d.deduction_type_id AND t.is_active = TRUE
+             WHERE d.employee_id = $1 AND d.amount_cents > 0",
+        )
+        .bind(employee_id)
         .fetch_all(pool)
         .await
-        .map_err(|e| AppError::Internal(e.into()))
+        .map_err(|e| AppError::Internal(e.into()))?;
+
+        if defaults.is_empty() {
+            continue;
+        }
+
+        let gross: i64 = sqlx::query_scalar("SELECT gross_pay_cents FROM payroll_lines WHERE id = $1")
+            .bind(line_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+        let total: i64 = defaults.iter().map(|(_, amount)| amount).sum();
+        if total > gross {
+            continue;
+        }
+
+        for (type_id, amount) in defaults {
+            sqlx::query(
+                "INSERT INTO payroll_deductions (line_id, deduction_type_id, amount_cents)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(line_id)
+            .bind(type_id)
+            .bind(amount)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+        }
+        let net = gross - total;
+        sqlx::query("UPDATE payroll_lines SET net_pay_cents = $2 WHERE id = $1")
+            .bind(line_id)
+            .bind(net)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+    }
+    Ok(())
 }
 
 pub async fn get_line_for_run(
@@ -34,7 +165,7 @@ pub async fn get_line_for_run(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
                 e.is_active AS employee_is_active,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
-                l.base_pay_cents, l.no_show_deduction_cents, l.ot_pay_cents,
+                l.base_pay_cents, l.allowance_cents, l.no_show_deduction_cents, l.ot_pay_cents,
                 l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id

@@ -14,6 +14,14 @@
   {% endif %}
 </section>
 
+{% if content.missing_compensation %}
+<div class="alert alert-warning">
+  <strong>Missing compensation</strong> — no compensation effective on {{ content.end_date }} for:
+  <strong>{{ content.missing_compensation | join(', ') }}</strong>.
+  These employees will be skipped in payroll runs until compensation is set.
+</div>
+{% endif %}
+
 <section class="panel narrow-panel">
   <h2>Filters &amp; date range</h2>
   <form method="get" action="/admin/reports" class="stack">

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Deduction Types</h1>
+  <p class="muted">Manage payroll deduction categories (SSS, PhilHealth, loans, etc.). Inactive types are hidden from new deduction entry but remain on finalized runs.</p>
+  <p><a href="/admin/payroll">← Payroll</a></p>
+</section>
+
+<section class="panel narrow-panel">
+  <h2>Add deduction type</h2>
+  <form method="post" action="/admin/deduction-types" class="stack">
+    {% include "partials/csrf_field.html" %}
+    <label>Code
+      <input type="text" name="code" required pattern="[A-Za-z0-9_]+" placeholder="e.g. SSS">
+    </label>
+    <label>Name
+      <input type="text" name="name" required placeholder="e.g. SSS contribution">
+    </label>
+    <button type="submit" class="btn btn-primary">Create</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Existing types</h2>
+  {% if content.types %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for t in content.types %}
+        <tr>
+          <td>{{ t.code }}</td>
+          <td>{{ t.name }}</td>
+          <td>{% if t.is_active %}Active{% else %}Inactive{% endif %}</td>
+          <td>
+            <form method="post" action="/admin/deduction-types/{{ t.id }}/toggle" class="inline-form">
+              {% include "partials/csrf_field.html" %}
+              {% if t.is_active %}
+              <input type="hidden" name="activate" value="false">
+              <button type="submit" class="btn btn-small btn-secondary">Deactivate</button>
+              {% else %}
+              <input type="hidden" name="activate" value="true">
+              <button type="submit" class="btn btn-small btn-primary">Activate</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No deduction types yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

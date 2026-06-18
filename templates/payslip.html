@@ -3,7 +3,10 @@
 <section class="page-header no-print">
   <h1>Payslip</h1>
   <p><a href="{{ content.back_url }}">← {{ content.back_label }}</a></p>
-  <p class="hint">Use your browser's Print (Ctrl+P) to save or print this payslip.</p>
+  <p class="hint">
+    <a href="{{ content.pdf_url }}" class="btn btn-small btn-secondary">Download PDF</a>
+    · Use your browser's Print (Ctrl+P) to save or print this payslip.
+  </p>
 </section>
 
 <article class="payslip-document panel">
@@ -45,6 +48,12 @@
             <td>Base pay</td>
             <td class="amount">PHP {{ content.base_pay }}</td>
           </tr>
+          {% if content.has_allowance %}
+          <tr>
+            <td>Allowances</td>
+            <td class="amount">PHP {{ content.allowance }}</td>
+          </tr>
+          {% endif %}
           {% if content.has_ot_pay %}
           <tr>
             <td>Overtime pay</td>

@@ -20,6 +20,7 @@ pub struct PayrollRun {
     pub created_at: OffsetDateTime,
     pub finalized_at: Option<OffsetDateTime>,
     pub finalized_by: Option<Uuid>,
+    pub attendance_snapshot_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -51,6 +52,7 @@ pub struct PayrollLineWithEmployee {
     pub pending_ot_minutes: i32,
     pub no_show_days: i32,
     pub base_pay_cents: i64,
+    pub allowance_cents: i64,
     pub no_show_deduction_cents: i64,
     pub ot_pay_cents: i64,
     pub gross_pay_cents: i64,

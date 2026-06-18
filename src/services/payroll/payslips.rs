@@ -33,6 +33,7 @@ pub struct PayslipLineRow {
     pub approved_ot_minutes: i32,
     pub no_show_days: i32,
     pub base_pay_cents: i64,
+    pub allowance_cents: i64,
     pub no_show_deduction_cents: i64,
     pub ot_pay_cents: i64,
     pub gross_pay_cents: i64,
@@ -45,6 +46,7 @@ pub struct PayslipLineRow {
 pub struct PayslipDetail {
     pub line_id: Uuid,
     pub run_id: Uuid,
+    pub employee_id: Uuid,
     pub employee_code: String,
     pub full_name: String,
     pub department: Option<String>,
@@ -54,6 +56,7 @@ pub struct PayslipDetail {
     pub approved_ot_minutes: i32,
     pub no_show_days: i32,
     pub base_pay_cents: i64,
+    pub allowance_cents: i64,
     pub no_show_deduction_cents: i64,
     pub ot_pay_cents: i64,
     pub gross_pay_cents: i64,
@@ -90,7 +93,7 @@ async fn fetch_payslip_line(pool: &PgPool, line_id: Uuid) -> AppResult<PayslipLi
         "SELECT l.id AS line_id, r.id AS run_id, l.employee_id, e.employee_code, e.full_name,
                 p.department, r.period_start, r.period_end, r.status AS run_status,
                 l.regular_minutes, l.approved_ot_minutes, l.no_show_days,
-                l.base_pay_cents, l.no_show_deduction_cents, l.ot_pay_cents,
+                l.base_pay_cents, l.allowance_cents, l.no_show_deduction_cents, l.ot_pay_cents,
                 l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
@@ -120,6 +123,7 @@ fn row_to_detail(
     Ok(PayslipDetail {
         line_id: row.line_id,
         run_id: row.run_id,
+        employee_id: row.employee_id,
         employee_code: row.employee_code,
         full_name: row.full_name,
         department: row.department,
@@ -129,6 +133,7 @@ fn row_to_detail(
         approved_ot_minutes: row.approved_ot_minutes,
         no_show_days: row.no_show_days,
         base_pay_cents: row.base_pay_cents,
+        allowance_cents: row.allowance_cents,
         no_show_deduction_cents: row.no_show_deduction_cents,
         ot_pay_cents: row.ot_pay_cents,
         gross_pay_cents: row.gross_pay_cents,
