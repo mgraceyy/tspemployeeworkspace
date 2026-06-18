@@ -15,7 +15,7 @@ use common::{
 const TEST_PIN: &str = "482915";
 
 fn unique_code(prefix: &str) -> String {
-    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8])
+    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8]).to_uppercase()
 }
 
 async fn cleanup_employee(pool: &sqlx::PgPool, code: &str) {

@@ -64,7 +64,7 @@ async fn try_pool() -> Option<PgPool> {
 }
 
 fn unique_code(prefix: &str) -> String {
-    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8])
+    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8]).to_uppercase()
 }
 
 async fn create_test_admin(pool: &PgPool) -> (Uuid, String) {

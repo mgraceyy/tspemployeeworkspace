@@ -91,13 +91,17 @@ pub async fn create_employee(
     manager_id: Option<Uuid>,
 ) -> AppResult<EmployeeSummary> {
     validate_pin(pin)?;
+    let employee_code = employee_code.trim().to_uppercase();
+    if employee_code.is_empty() {
+        return Err(AppError::bad_request("Employee code is required"));
+    }
     let pin_hash = hash_pin(pin)?;
     let employee = sqlx::query_as::<_, EmployeeSummary>(
         "INSERT INTO employees (employee_code, full_name, pin_hash, role, manager_id, must_change_pin)
          VALUES ($1, $2, $3, $4, $5, TRUE)
          RETURNING id, employee_code, full_name, role, manager_id, is_active",
     )
-    .bind(employee_code)
+    .bind(&employee_code)
     .bind(full_name)
     .bind(pin_hash)
     .bind(role)

@@ -16,7 +16,7 @@ use common::{
 const TEST_PIN: &str = "482915";
 
 fn unique_code(prefix: &str) -> String {
-    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8])
+    format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8]).to_uppercase()
 }
 
 async fn cleanup_employee(pool: &sqlx::PgPool, code: &str) {
@@ -344,7 +344,7 @@ async fn login_locks_account_after_repeated_failures() {
 
     let body = format!("employee_code={code}&pin={TEST_PIN}&csrf_token={csrf}");
     let (_, response, _) = post_form(&mut app, "/login", &cookies, &body).await;
-    assert!(response.contains("Too many failed attempts"));
+    assert!(response.contains("Too many failed login attempts"));
 
     cleanup_employee(&pool, &code).await;
 }
