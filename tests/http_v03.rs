@@ -1,10 +1,13 @@
 mod common;
 
 use axum::http::StatusCode;
-use dtr::models::UserRole;
+use dtr::models::{AttendanceStatus, UserRole};
+use dtr::services::attendance::mark_absence_for_employee;
 use dtr::services::compensation::UpsertProfileInput;
-use dtr::services::employees::create_employee;
+use dtr::services::employees::{create_employee, find_by_id};
+use dtr::services::payroll::list_deduction_types;
 use dtr::services::payroll_controls::close_pay_period;
+use dtr::services::profile::get_profile;
 use dtr::services::reports::current_pay_period;
 use dtr::services::settings::get_settings;
 use dtr::services::timezone::format_date;
@@ -17,6 +20,7 @@ use common::{
 };
 
 const TEST_PIN: &str = "482915";
+const TEMP_PIN: &str = "887766";
 
 const MINI_PNG: &[u8] = &[
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -31,6 +35,18 @@ fn unique_code(prefix: &str) -> String {
 }
 
 async fn cleanup_employee(pool: &sqlx::PgPool, code: &str) {
+    let _ = sqlx::query(
+        "DELETE FROM pin_reset_requests WHERE employee_id IN (SELECT id FROM employees WHERE employee_code = $1)",
+    )
+    .bind(code)
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "DELETE FROM employee_deduction_defaults WHERE employee_id IN (SELECT id FROM employees WHERE employee_code = $1)",
+    )
+    .bind(code)
+    .execute(pool)
+    .await;
     let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id IN (SELECT id FROM payroll_runs WHERE created_by IN (SELECT id FROM employees WHERE employee_code = $1))")
         .bind(code)
         .execute(pool)
@@ -424,6 +440,377 @@ async fn employee_can_download_payslip_pdf_via_http() {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .contains("application/pdf"));
+
+    cleanup_payroll_period(&pool, period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn manager_can_approve_pin_reset_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let mgr_code = unique_code("PRMG");
+    let emp_code = unique_code("PREM");
+    let manager = create_employee(
+        &pool,
+        &mgr_code,
+        "PIN Reset HTTP Manager",
+        TEST_PIN,
+        UserRole::Manager,
+        None,
+    )
+    .await
+    .expect("manager");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "PIN Reset HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        Some(manager.id),
+    )
+    .await
+    .expect("employee");
+
+    let mut app = test_app(pool.clone()).await;
+    let emp_cookies = login_as(&mut app, &emp_code, TEST_PIN).await;
+    let (_, profile_html, emp_cookies) = get(&mut app, "/me/profile", &emp_cookies).await;
+    let csrf = extract_csrf_token(&profile_html).expect("csrf");
+    let (status, _, _) = post_form(
+        &mut app,
+        "/me/profile/request-pin-reset",
+        &emp_cookies,
+        &format!("reason=Forgot+PIN&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let request_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM pin_reset_requests WHERE employee_id = $1 AND status = 'pending'",
+    )
+    .bind(employee.id)
+    .fetch_one(&pool)
+    .await
+    .expect("pending request");
+
+    let mgr_cookies = login_as(&mut app, &mgr_code, TEST_PIN).await;
+    let (_, pin_resets_html, mgr_cookies) =
+        get(&mut app, "/manager/pin-resets", &mgr_cookies).await;
+    assert!(pin_resets_html.contains(&emp_code.to_uppercase()));
+    let csrf = extract_csrf_token(&pin_resets_html).expect("csrf");
+    let (status, _, _) = post_form(
+        &mut app,
+        &format!("/manager/pin-resets/{request_id}/approve"),
+        &mgr_cookies,
+        &format!("temp_pin={TEMP_PIN}&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let row = find_by_id(&pool, employee.id)
+        .await
+        .expect("find employee")
+        .expect("employee row");
+    assert!(row.must_change_pin);
+    assert_eq!(row.session_version, 1);
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &mgr_code).await;
+}
+
+#[tokio::test]
+async fn manager_can_deny_pin_reset_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let mgr_code = unique_code("PRDN");
+    let emp_code = unique_code("PRDE");
+    let manager = create_employee(
+        &pool,
+        &mgr_code,
+        "PIN Deny HTTP Manager",
+        TEST_PIN,
+        UserRole::Manager,
+        None,
+    )
+    .await
+    .expect("manager");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "PIN Deny HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        Some(manager.id),
+    )
+    .await
+    .expect("employee");
+
+    let mut app = test_app(pool.clone()).await;
+    let emp_cookies = login_as(&mut app, &emp_code, TEST_PIN).await;
+    let (_, profile_html, emp_cookies) = get(&mut app, "/me/profile", &emp_cookies).await;
+    let csrf = extract_csrf_token(&profile_html).expect("csrf");
+    let (status, _, _) = post_form(
+        &mut app,
+        "/me/profile/request-pin-reset",
+        &emp_cookies,
+        &format!("reason=Not+needed&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let request_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM pin_reset_requests WHERE employee_id = $1 AND status = 'pending'",
+    )
+    .bind(employee.id)
+    .fetch_one(&pool)
+    .await
+    .expect("pending request");
+
+    let mgr_cookies = login_as(&mut app, &mgr_code, TEST_PIN).await;
+    let (_, pin_resets_html, mgr_cookies) =
+        get(&mut app, "/manager/pin-resets", &mgr_cookies).await;
+    let csrf = extract_csrf_token(&pin_resets_html).expect("csrf");
+    let (status, _, _) = post_form(
+        &mut app,
+        &format!("/manager/pin-resets/{request_id}/deny"),
+        &mgr_cookies,
+        &format!("review_note=Verified+with+employee&csrf_token={csrf}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let status: String =
+        sqlx::query_scalar("SELECT status::text FROM pin_reset_requests WHERE id = $1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("request status");
+    assert_eq!(status, "denied");
+
+    let row = find_by_id(&pool, employee.id)
+        .await
+        .expect("find employee")
+        .expect("employee row");
+    assert!(!row.must_change_pin);
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &mgr_code).await;
+}
+
+#[tokio::test]
+async fn admin_can_save_deduction_defaults_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("DDAD");
+    let emp_code = unique_code("DDEM");
+    let _admin = create_employee(
+        &pool,
+        &admin_code,
+        "Deduction Defaults HTTP Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Deduction Defaults HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let types = list_deduction_types(&pool).await.expect("types");
+    let sss = types.iter().find(|t| t.code == "SSS").expect("sss type");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let comp_path = format!("/admin/employees/{}/compensation", employee.id);
+    let (_, comp_html, cookies) = get(&mut app, &comp_path, &cookies).await;
+    assert!(comp_html.contains("Default payroll deductions"));
+    let csrf = extract_csrf_token(&comp_html).expect("csrf");
+
+    let defaults_path = format!(
+        "/admin/employees/{}/compensation/deduction-defaults",
+        employee.id
+    );
+    let body = format!("default_sss=250.00&csrf_token={csrf}");
+    let (status, _, cookies) = post_form(&mut app, &defaults_path, &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, saved_html, _) = get(&mut app, &comp_path, &cookies).await;
+    assert!(saved_html.contains("250.00"));
+
+    let amount: i64 = sqlx::query_scalar(
+        "SELECT amount_cents FROM employee_deduction_defaults
+         WHERE employee_id = $1 AND deduction_type_id = $2",
+    )
+    .bind(employee.id)
+    .bind(sss.id)
+    .fetch_one(&pool)
+    .await
+    .expect("default amount");
+    assert_eq!(amount, 25_000);
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn admin_can_save_payroll_identity_fields_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("IDAD");
+    let emp_code = unique_code("IDEM");
+    let _admin = create_employee(
+        &pool,
+        &admin_code,
+        "Identity HTTP Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Identity HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let profile_path = format!("/admin/employees/{}/profile", employee.id);
+    let (_, profile_html, cookies) = get(&mut app, &profile_path, &cookies).await;
+    assert!(profile_html.contains("Payroll Identity"));
+    let csrf = extract_csrf_token(&profile_html).expect("csrf");
+
+    let body = format!(
+        "bank_account=1234567890&tin=123-456-789&sss_number=01-2345678-9&philhealth_number=12-345678901-2&csrf_token={csrf}"
+    );
+    let (status, _, _) = post_form(&mut app, &profile_path, &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let profile = get_profile(&pool, employee.id).await.expect("profile");
+    assert_eq!(profile.bank_account.as_deref(), Some("1234567890"));
+    assert_eq!(profile.tin.as_deref(), Some("123-456-789"));
+    assert_eq!(profile.sss_number.as_deref(), Some("01-2345678-9"));
+    assert_eq!(profile.philhealth_number.as_deref(), Some("12-345678901-2"));
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn draft_payroll_run_shows_stale_attendance_warning_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("STAD");
+    let emp_code = unique_code("STEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Stale Warning HTTP Admin",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Stale Warning HTTP Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+    cleanup_payroll_period(&pool, period_start, period_end).await;
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("stale warning http"),
+    )
+    .await
+    .expect("close");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
+    let (_, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
+    let csrf = extract_csrf_token(&payroll_html).expect("csrf");
+    let body = format!(
+        "period_start={}&period_end={}&csrf_token={csrf}",
+        format_date(period_start),
+        format_date(period_end)
+    );
+    let (status, _, cookies) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let run_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM payroll_runs WHERE period_start = $1 AND period_end = $2 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .fetch_one(&pool)
+    .await
+    .expect("run");
+
+    let (_, fresh_html, cookies) =
+        get(&mut app, &format!("/admin/payroll/{run_id}"), &cookies).await;
+    assert!(
+        !fresh_html.contains("Attendance changed"),
+        "fresh draft should not show stale warning"
+    );
+
+    mark_absence_for_employee(
+        &pool,
+        employee.id,
+        period_start,
+        AttendanceStatus::NoShow,
+        admin.id,
+        true,
+        admin.id,
+    )
+    .await
+    .expect("mark no-show");
+
+    let (_, stale_html, _) = get(&mut app, &format!("/admin/payroll/{run_id}"), &cookies).await;
+    assert!(stale_html.contains("Attendance changed"));
 
     cleanup_payroll_period(&pool, period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;

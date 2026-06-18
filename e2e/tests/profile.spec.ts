@@ -37,3 +37,20 @@ test("employee can upload a profile photo", async ({ page }) => {
 
   fs.unlinkSync(tmpFile);
 });
+
+test("logout everywhere invalidates the current session", async ({ page }) => {
+  await page.goto("/login");
+  await page.fill('input[name="employee_code"]', EMPLOYEE_CODE);
+  await page.fill('input[name="pin"]', EMPLOYEE_PIN);
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await expect(page).toHaveURL("/");
+
+  page.once("dialog", (dialog) => dialog.accept());
+
+  await page.goto("/me/profile");
+  await page.getByRole("button", { name: /log out everywhere/i }).click();
+  await expect(page).toHaveURL(/\/login/);
+
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login/);
+});
