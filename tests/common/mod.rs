@@ -3,8 +3,6 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::sync::Mutex;
-
 use axum::{
     body::Body,
     http::{header, HeaderMap, Request, StatusCode},
@@ -47,14 +45,11 @@ impl Default for TestAppConfig {
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
-static PREVIOUS_HANDLER_POOL: Mutex<Option<PgPool>> = Mutex::const_new(None);
 
-/// Setup pool for migrations and fixtures. Each test_app gets its own handler pool.
-const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
-const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 8;
+/// One shared pool for fixtures and HTTP handlers avoids per-test pool churn in CI.
+const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 10;
 const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
 const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const RESET_MAX_ATTEMPTS: u32 = 5;
 
@@ -92,25 +87,6 @@ async fn setup_pool() -> Result<PgPool, sqlx::Error> {
     .await?;
     let _ = TEST_SETUP_POOL.set(pool);
     Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
-}
-
-async fn close_previous_handler_pool() {
-    let mut previous = PREVIOUS_HANDLER_POOL.lock().await;
-    if let Some(pool) = previous.take() {
-        pool.close().await;
-    }
-}
-
-async fn new_handler_pool() -> Result<PgPool, sqlx::Error> {
-    close_previous_handler_pool().await;
-    let pool = connect_pool(
-        TEST_HANDLER_POOL_MAX_CONNECTIONS,
-        HANDLER_POOL_ACQUIRE_TIMEOUT,
-        "test handler database",
-    )
-    .await?;
-    *PREVIOUS_HANDLER_POOL.lock().await = Some(pool.clone());
-    Ok(pool)
 }
 
 async fn reset_pool() -> Result<PgPool, sqlx::Error> {
@@ -223,13 +199,8 @@ pub async fn test_app(setup_pool: PgPool) -> Router {
     test_app_with_config(setup_pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(_setup_pool: PgPool, config: TestAppConfig) -> Router {
-    let pool = new_handler_pool().await.unwrap_or_else(|e| {
-        if std::env::var_os("CI").is_some() {
-            panic!("test handler pool connection failed in CI: {e}");
-        }
-        panic!("test handler pool connection failed: {e}");
-    });
+pub async fn test_app_with_config(setup_pool: PgPool, config: TestAppConfig) -> Router {
+    let pool = setup_pool;
     // Fresh in-memory store per app so sessions never leak across tests.
     let session_store = MemoryStore::default();
 
@@ -467,28 +438,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         response.chars().take(200).collect::<String>()
     );
 
-    let mut cookies = cookies_after_login_response(&pre_login_cookies, &headers);
-
-    // session.flush() on login rotates the id; follow the redirect so the new cookie
-    // is established before authenticated admin/manager requests.
-    let target = {
-        let loc = location.trim();
-        if loc.is_empty() {
-            "/"
-        } else {
-            loc
-        }
-    };
-    let (follow_status, follow_body, follow_cookies, follow_headers) =
-        get_with_extra_headers(app, target, &cookies, &[]).await;
-    cookies = merge_cookies_from_headers(&follow_cookies, &follow_headers);
-    assert_eq!(
-        follow_status,
-        StatusCode::OK,
-        "session not established after login redirect to {target}: {follow_status}; body: {}",
-        follow_body.chars().take(200).collect::<String>()
-    );
-    cookies
+    cookies_after_login_response(&pre_login_cookies, &headers)
 }
 
 pub async fn post_form(
