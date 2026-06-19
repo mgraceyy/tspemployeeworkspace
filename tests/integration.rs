@@ -1,5 +1,6 @@
+mod common;
+
 use dtr::auth::UserSession;
-use dtr::db;
 use dtr::error::AppError;
 use dtr::models::AttendanceStatus;
 use dtr::models::PayPeriodType;
@@ -55,14 +56,6 @@ use sqlx::PgPool;
 use time::{Date, Month, Time};
 use uuid::Uuid;
 
-async fn try_pool() -> Option<PgPool> {
-    dotenvy::dotenv().ok();
-    let url = std::env::var("DATABASE_URL").ok()?;
-    let pool = db::connect(&url).await.ok()?;
-    db::migrate(&pool).await.ok()?;
-    Some(pool)
-}
-
 fn unique_code(prefix: &str) -> String {
     format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8]).to_uppercase()
 }
@@ -116,7 +109,7 @@ async fn cleanup_employee(pool: &PgPool, code: &str) {
 
 #[tokio::test]
 async fn payroll_summary_totals_regular_and_approved_ot() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -176,7 +169,7 @@ async fn payroll_summary_totals_regular_and_approved_ot() {
 
 #[tokio::test]
 async fn ot_approval_moves_pending_to_payable() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -241,7 +234,7 @@ async fn ot_approval_moves_pending_to_payable() {
 
 #[tokio::test]
 async fn correction_creates_audit_log_entry() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -313,7 +306,7 @@ async fn correction_creates_audit_log_entry() {
 
 #[tokio::test]
 async fn admin_audit_log_records_actions() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -364,7 +357,7 @@ async fn admin_audit_log_records_actions() {
 
 #[tokio::test]
 async fn employee_profile_self_service_updates_contact_fields() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -399,7 +392,7 @@ async fn employee_profile_self_service_updates_contact_fields() {
 
 #[tokio::test]
 async fn eod_required_after_clock_in_and_visible_by_department() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -524,7 +517,7 @@ async fn eod_required_after_clock_in_and_visible_by_department() {
 
 #[tokio::test]
 async fn requirement_checklist_submit_flow() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -581,7 +574,7 @@ async fn requirement_checklist_submit_flow() {
 
 #[tokio::test]
 async fn eod_unlock_allows_editing_again() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -655,7 +648,7 @@ async fn eod_unlock_allows_editing_again() {
 
 #[tokio::test]
 async fn requirement_expiry_allows_resubmit() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -769,7 +762,7 @@ async fn requirement_expiry_allows_resubmit() {
 
 #[tokio::test]
 async fn bulk_department_assign_updates_profiles() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -804,7 +797,7 @@ async fn bulk_department_assign_updates_profiles() {
 
 #[tokio::test]
 async fn holiday_skips_eod_reminder() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -842,7 +835,7 @@ async fn holiday_skips_eod_reminder() {
 
 #[tokio::test]
 async fn leave_types_appear_in_payroll_summary() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -906,7 +899,7 @@ async fn leave_types_appear_in_payroll_summary() {
 
 #[tokio::test]
 async fn in_app_notifications_include_missing_eod() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -963,7 +956,7 @@ fn ot_status_auto_approves_when_approval_disabled() {
 
 #[tokio::test]
 async fn clock_out_requires_ot_reason_when_pending() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1015,7 +1008,7 @@ async fn clock_out_requires_ot_reason_when_pending() {
 
 #[tokio::test]
 async fn closed_pay_period_blocks_clock_in_and_correction() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1079,7 +1072,7 @@ async fn closed_pay_period_blocks_clock_in_and_correction() {
 
 #[tokio::test]
 async fn closed_pay_period_blocks_leave_create_and_approval() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1149,7 +1142,7 @@ async fn closed_pay_period_blocks_leave_create_and_approval() {
 
 #[tokio::test]
 async fn closed_pay_period_blocks_ot_eod_and_absence() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1250,7 +1243,7 @@ async fn closed_pay_period_blocks_ot_eod_and_absence() {
 
 #[tokio::test]
 async fn reopen_pay_period_allows_clock_in_again() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1299,7 +1292,7 @@ async fn reopen_pay_period_allows_clock_in_again() {
 
 #[tokio::test]
 async fn company_timezone_drives_clock_in_work_date() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1377,7 +1370,7 @@ async fn company_timezone_drives_clock_in_work_date() {
 
 #[tokio::test]
 async fn duplicate_pay_period_close_is_idempotent() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1404,7 +1397,7 @@ async fn duplicate_pay_period_close_is_idempotent() {
 
 #[tokio::test]
 async fn overlapping_pay_period_close_is_rejected() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1447,7 +1440,7 @@ async fn overlapping_pay_period_close_is_rejected() {
 
 #[tokio::test]
 async fn compensation_profile_persists_and_gross_pay_follows_policy() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1567,7 +1560,7 @@ async fn ensure_all_active_have_compensation(pool: &PgPool, admin_id: Uuid, effe
 
 #[tokio::test]
 async fn admin_can_create_and_finalize_payroll_run() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1642,7 +1635,7 @@ async fn admin_can_create_and_finalize_payroll_run() {
 
 #[tokio::test]
 async fn admin_can_save_payroll_deductions_and_finalize_net_pay() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1747,7 +1740,7 @@ async fn admin_can_save_payroll_deductions_and_finalize_net_pay() {
 
 #[tokio::test]
 async fn employee_sees_finalized_payslip_only() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1834,7 +1827,7 @@ async fn employee_sees_finalized_payslip_only() {
 
 #[tokio::test]
 async fn draft_payroll_run_can_be_voided_and_period_reopened() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1880,7 +1873,7 @@ async fn draft_payroll_run_can_be_voided_and_period_reopened() {
 
 #[tokio::test]
 async fn finalize_blocks_while_pending_ot_remains() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1934,7 +1927,7 @@ async fn finalize_blocks_while_pending_ot_remains() {
 
 #[tokio::test]
 async fn payroll_run_rejects_non_canonical_closed_period() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -1984,7 +1977,7 @@ async fn payroll_run_rejects_non_canonical_closed_period() {
 
 #[tokio::test]
 async fn payroll_rejects_compensation_not_effective_on_period_end() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2062,7 +2055,7 @@ async fn payroll_rejects_compensation_not_effective_on_period_end() {
 
 #[tokio::test]
 async fn get_compensation_as_of_uses_history_when_current_is_future_dated() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2186,7 +2179,7 @@ where
 
 #[tokio::test]
 async fn payroll_run_honors_weekly_pay_period_base_pay() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2239,7 +2232,7 @@ async fn payroll_run_honors_weekly_pay_period_base_pay() {
 
 #[tokio::test]
 async fn payroll_run_honors_biweekly_pay_period_base_pay() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2291,7 +2284,7 @@ async fn payroll_run_honors_biweekly_pay_period_base_pay() {
 
 #[tokio::test]
 async fn admin_profile_stores_payroll_identity_fields() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2344,7 +2337,7 @@ async fn admin_profile_stores_payroll_identity_fields() {
 
 #[tokio::test]
 async fn pin_reset_request_approval_forces_pin_change() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2392,7 +2385,7 @@ async fn pin_reset_request_approval_forces_pin_change() {
 
 #[tokio::test]
 async fn active_employee_list_excludes_archived_by_default() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2466,7 +2459,7 @@ async fn active_employee_list_excludes_archived_by_default() {
 
 #[tokio::test]
 async fn payroll_line_includes_semimonthly_allowances() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2541,7 +2534,7 @@ async fn payroll_line_includes_semimonthly_allowances() {
 
 #[tokio::test]
 async fn deduction_defaults_apply_when_draft_run_is_created() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2616,7 +2609,7 @@ async fn deduction_defaults_apply_when_draft_run_is_created() {
 
 #[tokio::test]
 async fn finalized_payroll_exports_include_allowances_and_bank_data() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2741,7 +2734,7 @@ async fn finalized_payroll_exports_include_allowances_and_bank_data() {
 
 #[tokio::test]
 async fn bank_upload_csv_omits_employees_without_bank_account() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2849,7 +2842,7 @@ async fn bank_upload_csv_omits_employees_without_bank_account() {
 
 #[tokio::test]
 async fn journal_export_uses_configurable_gl_accounts() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
@@ -2957,7 +2950,7 @@ async fn journal_export_uses_configurable_gl_accounts() {
 
 #[tokio::test]
 async fn draft_attendance_becomes_stale_after_no_show_is_marked() {
-    let Some(pool) = try_pool().await else {
+    let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };

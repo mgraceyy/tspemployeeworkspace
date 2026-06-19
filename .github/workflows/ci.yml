@@ -64,12 +64,27 @@ jobs:
       - name: Build
         run: cargo build --release
 
+      - name: Wait for PostgreSQL
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          for i in $(seq 1 30); do
+            if PGPASSWORD=dtr psql -h localhost -U dtr -d dtr -c 'SELECT 1' >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "PostgreSQL did not become ready"
+          exit 1
+
       - name: Run tests
         run: |
           set -o pipefail
           cargo test -j 1 -- --test-threads 1 --nocapture 2>&1 | tee cargo-test.log || {
             echo "=== cargo test failed ==="
             grep -nE "FAILED|panicked at|^failures:|login failed" cargo-test.log || true
+            grep -E "FAILED|panicked at|^failures:" cargo-test.log | tail -n 30 | while IFS= read -r line; do
+              echo "::error title=Test failure::${line}"
+            done
             echo "=== tail cargo-test.log ==="
             tail -n 150 cargo-test.log
             exit 1
