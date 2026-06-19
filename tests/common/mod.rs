@@ -248,15 +248,15 @@ pub fn merge_cookies_from_headers(existing: &str, headers: &HeaderMap) -> String
 
 /// Apply every Set-Cookie from a response at once (login flush may emit clear + new id).
 fn apply_set_cookies(existing: &str, headers: &HeaderMap) -> String {
-    let mut updated_names = Vec::new();
-    let mut new_parts = Vec::new();
+    let mut updated_names: Vec<String> = Vec::new();
+    let mut new_parts: Vec<String> = Vec::new();
     for value in headers.get_all(header::SET_COOKIE) {
         let part = cookie_header(Some(value));
         if part.is_empty() {
             continue;
         }
         if let Some(name) = cookie_name(&part) {
-            updated_names.push(name);
+            updated_names.push(name.to_string());
             new_parts.push(part);
         }
     }
@@ -267,7 +267,11 @@ fn apply_set_cookies(existing: &str, headers: &HeaderMap) -> String {
         .split(';')
         .map(str::trim)
         .filter(|part| !part.is_empty())
-        .filter(|part| cookie_name(part).is_none_or(|name| !updated_names.contains(&name)))
+        .filter(|part| {
+            cookie_name(part)
+                .map(|name| !updated_names.iter().any(|updated| updated == name))
+                .unwrap_or(true)
+        })
         .collect();
     if kept.is_empty() {
         new_parts.join("; ")
