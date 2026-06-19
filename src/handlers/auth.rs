@@ -120,10 +120,10 @@ pub async fn login_submit(
 
     state.login_limiter.clear_account(&employee_code).await?;
 
-    // Cycle the session id (session fixation defense) without flush(), which emits a
-    // clearing Set-Cookie that breaks integration tests replaying raw Cookie headers.
+    // flush() rotates the session id after login. Integration tests replay raw Cookie
+    // headers and ignore clearing Set-Cookie values while applying the new session id.
     session
-        .cycle_id()
+        .flush()
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
     crate::auth::csrf::get_or_create_token(&session).await?;
