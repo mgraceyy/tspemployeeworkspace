@@ -48,7 +48,7 @@ static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 /// One shared pool for test setup and HTTP handlers. MemoryStore sessions avoid the
 /// PostgresStore deadlock that motivated smaller per-role pools; a single larger pool
 /// keeps reset/setup from starving while handlers run.
-const TEST_POOL_MAX_CONNECTIONS: u32 = 20;
+const TEST_POOL_MAX_CONNECTIONS: u32 = 25;
 const RESET_MAX_ATTEMPTS: u32 = 5;
 
 async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx::Error> {
@@ -67,6 +67,8 @@ async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx:
 
 async fn try_reset_shared_test_state(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut conn = pool.acquire().await?;
+    // Clear any aborted transaction state left on pooled connections.
+    let _ = sqlx::query("DISCARD ALL").execute(&mut *conn).await;
     sqlx::query("DELETE FROM closed_pay_periods")
         .execute(&mut *conn)
         .await?;
@@ -350,6 +352,21 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         StatusCode::SEE_OTHER,
         "login failed for {code}: got {status}; location={location}; body: {}",
         response.chars().take(200).collect::<String>()
+    );
+
+    // Login flushes the session id; follow the redirect so the Set-Cookie from the
+    // POST response is exercised before authenticated admin/manager requests.
+    let target = if location.is_empty() {
+        "/"
+    } else {
+        location.as_str()
+    };
+    let (status, home_html, cookies) = get(app, target, &cookies).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "session not established after login redirect to {target}: {status}; body: {}",
+        home_html.chars().take(200).collect::<String>()
     );
     cookies
 }

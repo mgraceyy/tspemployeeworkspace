@@ -12,8 +12,8 @@ use time::{Date, Month};
 use uuid::Uuid;
 
 use common::{
-    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, login_as,
-    post_form, post_multipart, test_app, test_pool, url_encode,
+    create_ready_employee, expect_csrf_token, extract_csrf_token, get, get_bytes, get_with_headers,
+    login_as, post_form, post_multipart, test_app, test_pool, url_encode,
 };
 
 const TEST_PIN: &str = "482915";
@@ -118,8 +118,8 @@ async fn admin_can_save_settings_via_http() {
 
     let mut app = test_app(pool.clone()).await;
     let cookies = login_as(&mut app, &code, TEST_PIN).await;
-    let (_, settings_html, cookies) = get(&mut app, "/admin/settings", &cookies).await;
-    let csrf = extract_csrf_token(&settings_html).expect("csrf");
+    let (status, settings_html, cookies) = get(&mut app, "/admin/settings", &cookies).await;
+    let csrf = expect_csrf_token("/admin/settings", status, &settings_html);
     let anchor = format_date(settings.pay_period_anchor);
     let pay_period = match settings.pay_period {
         dtr::models::PayPeriodType::Weekly => "weekly",
@@ -232,8 +232,8 @@ async fn admin_can_delete_report_preset_via_http() {
     let preset_name = format!("Delete Me {}", &Uuid::new_v4().simple().to_string()[..6]);
     let mut app = test_app(pool.clone()).await;
     let cookies = login_as(&mut app, &code, TEST_PIN).await;
-    let (_, reports_html, cookies) = get(&mut app, "/admin/reports", &cookies).await;
-    let csrf = extract_csrf_token(&reports_html).expect("csrf");
+    let (status, reports_html, cookies) = get(&mut app, "/admin/reports", &cookies).await;
+    let csrf = expect_csrf_token("/admin/reports", status, &reports_html);
     let body = format!("preset_name={preset_name}&csrf_token={csrf}");
     let (status, _, cookies) = post_form(&mut app, "/admin/reports/presets", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -882,8 +882,8 @@ async fn admin_can_reset_pin_via_http() {
     let mut app = test_app(pool.clone()).await;
     let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
     let edit_path = format!("/admin/employees/{}", employee.id);
-    let (_, edit_html, cookies) = get(&mut app, &edit_path, &cookies).await;
-    let csrf = extract_csrf_token(&edit_html).expect("csrf");
+    let (status, edit_html, cookies) = get(&mut app, &edit_path, &cookies).await;
+    let csrf = expect_csrf_token(&edit_path, status, &edit_html);
     let reset_path = format!("/admin/employees/{}/reset-pin", employee.id);
     let body = format!("new_pin={new_pin}&csrf_token={csrf}");
     let (status, _, _) = post_form(&mut app, &reset_path, &cookies, &body).await;
@@ -1209,7 +1209,13 @@ async fn admin_can_save_compensation_via_http() {
     let mut app = test_app(pool.clone()).await;
     let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
     let path = format!("/admin/employees/{}/compensation", employee.id);
-    let (_, comp_html, cookies) = get(&mut app, &path, &cookies).await;
+    let (status, comp_html, cookies) = get(&mut app, &path, &cookies).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET {path} failed: {status}; body: {}",
+        comp_html.chars().take(300).collect::<String>()
+    );
     assert!(comp_html.contains("Monthly salary"));
     let csrf = extract_csrf_token(&comp_html).expect("csrf");
     let body = format!(
@@ -1306,7 +1312,13 @@ async fn admin_can_finalize_payroll_run_via_http() {
 
     let mut app = test_app(pool.clone()).await;
     let cookies = login_as(&mut app, &admin_code, TEST_PIN).await;
-    let (_, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
+    let (status, payroll_html, cookies) = get(&mut app, "/admin/payroll", &cookies).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /admin/payroll failed: {status}; body: {}",
+        payroll_html.chars().take(300).collect::<String>()
+    );
     assert!(payroll_html.contains("Create draft"));
     let csrf = extract_csrf_token(&payroll_html).expect("csrf");
     let start = format_date(period_start);
