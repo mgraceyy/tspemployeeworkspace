@@ -48,16 +48,17 @@ static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_DB_RESET_LOCK: Mutex<()> = Mutex::const_new(());
+static PREVIOUS_HANDLER_POOL: Mutex<Option<PgPool>> = Mutex::const_new(None);
 
-/// Setup + reset pools are process-wide. Each test_app gets its own small handler pool
-/// so HTTP connections never leak across tests via a shared handler pool.
-const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 4;
-const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 2;
-const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 1;
+/// Setup + reset pools are process-wide. Each test_app gets its own handler pool so
+/// connections never leak across tests when a static handler pool is reused.
+const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
+const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 8;
+const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
 const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
-const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
-const RESET_MAX_ATTEMPTS: u32 = 3;
+const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
+const RESET_MAX_ATTEMPTS: u32 = 5;
 
 fn test_pool_options(max_connections: u32, acquire_timeout: Duration) -> PgPoolOptions {
     PgPoolOptions::new()
@@ -101,13 +102,23 @@ async fn setup_pool() -> Result<PgPool, sqlx::Error> {
     Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
 }
 
+async fn close_previous_handler_pool() {
+    let mut previous = PREVIOUS_HANDLER_POOL.lock().await;
+    if let Some(pool) = previous.take() {
+        pool.close().await;
+    }
+}
+
 async fn new_handler_pool() -> Result<PgPool, sqlx::Error> {
-    connect_pool(
+    close_previous_handler_pool().await;
+    let pool = connect_pool(
         TEST_HANDLER_POOL_MAX_CONNECTIONS,
         HANDLER_POOL_ACQUIRE_TIMEOUT,
         "test handler database",
     )
-    .await
+    .await?;
+    *PREVIOUS_HANDLER_POOL.lock().await = Some(pool.clone());
+    Ok(pool)
 }
 
 async fn reset_pool() -> Result<PgPool, sqlx::Error> {
@@ -128,10 +139,10 @@ async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
     let _guard = TEST_DB_RESET_LOCK.lock().await;
     let pool = reset_pool().await?;
     let mut conn = pool.acquire().await?;
-    sqlx::query("TRUNCATE closed_pay_periods")
+    sqlx::query("DELETE FROM closed_pay_periods")
         .execute(&mut *conn)
         .await?;
-    sqlx::query("TRUNCATE rate_limit_events")
+    sqlx::query("DELETE FROM rate_limit_events")
         .execute(&mut *conn)
         .await?;
     Ok(())
@@ -424,6 +435,23 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         StatusCode::SEE_OTHER,
         "login failed for {code}: got {status}; location={location}; body: {}",
         response.chars().take(200).collect::<String>()
+    );
+
+    // session.flush() on login may only fully establish the new id on the redirect target.
+    let target = {
+        let loc = location.trim();
+        if loc.is_empty() {
+            "/"
+        } else {
+            loc
+        }
+    };
+    let (follow_status, follow_body, cookies) = get(app, target, &cookies).await;
+    assert_eq!(
+        follow_status,
+        StatusCode::OK,
+        "session not established after login redirect to {target}: {follow_status}; cookies: {cookies}; body: {}",
+        follow_body.chars().take(200).collect::<String>()
     );
     cookies
 }
