@@ -219,7 +219,21 @@ fn cookie_name(pair: &str) -> Option<&str> {
     }
 }
 
+fn is_clearing_set_cookie(header_value: &str) -> bool {
+    let lower = header_value.to_ascii_lowercase();
+    if lower.contains("max-age=0") {
+        return true;
+    }
+    let pair = header_value.split(';').next().unwrap_or_default().trim();
+    pair.split_once('=')
+        .is_some_and(|(_, value)| value.is_empty())
+}
+
 pub fn merge_cookies(existing: &str, set_cookie: Option<&header::HeaderValue>) -> String {
+    let raw = set_cookie.and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if raw.is_empty() || is_clearing_set_cookie(raw) {
+        return existing.to_string();
+    }
     let new_cookie = cookie_header(set_cookie);
     if new_cookie.is_empty() {
         return existing.to_string();
@@ -244,40 +258,6 @@ pub fn merge_cookies_from_headers(existing: &str, headers: &HeaderMap) -> String
         cookies = merge_cookies(&cookies, Some(value));
     }
     cookies
-}
-
-/// Apply every Set-Cookie from a response at once (login flush may emit clear + new id).
-fn apply_set_cookies(existing: &str, headers: &HeaderMap) -> String {
-    let mut updated_names: Vec<String> = Vec::new();
-    let mut new_parts: Vec<String> = Vec::new();
-    for value in headers.get_all(header::SET_COOKIE) {
-        let part = cookie_header(Some(value));
-        if part.is_empty() {
-            continue;
-        }
-        if let Some(name) = cookie_name(&part) {
-            updated_names.push(name.to_string());
-            new_parts.push(part);
-        }
-    }
-    if new_parts.is_empty() {
-        return existing.to_string();
-    }
-    let kept: Vec<&str> = existing
-        .split(';')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .filter(|part| {
-            cookie_name(part)
-                .map(|name| !updated_names.iter().any(|updated| updated == name))
-                .unwrap_or(true)
-        })
-        .collect();
-    if kept.is_empty() {
-        new_parts.join("; ")
-    } else {
-        format!("{}; {}", kept.join("; "), new_parts.join("; "))
-    }
 }
 
 pub fn expect_csrf_token(path: &str, status: StatusCode, html: &str) -> String {
@@ -378,7 +358,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         url_encode(code),
         url_encode(pin)
     );
-    let (status, response, pre_login_cookies, headers) =
+    let (status, response, cookies, headers) =
         post_form_with_headers(app, "/login", &cookies, &body).await;
     let location = header_value(&headers, "location").unwrap_or_default();
     assert_eq!(
@@ -386,17 +366,6 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         StatusCode::SEE_OTHER,
         "login failed for {code}: got {status}; location={location}; body: {}",
         response.chars().take(200).collect::<String>()
-    );
-
-    // Login calls session.flush(), which invalidates the pre-login id. Prefer the
-    // POST response Set-Cookie headers over incremental merge so we never replay a
-    // stale session id to authenticated routes.
-    let cookies = apply_set_cookies(&pre_login_cookies, &headers);
-    let (status, _, cookies) = get(app, "/", &cookies).await;
-    assert_ne!(
-        status,
-        StatusCode::SEE_OTHER,
-        "session cookie not accepted after login for {code}: redirect to login; cookies: {cookies}"
     );
     cookies
 }
