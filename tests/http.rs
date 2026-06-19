@@ -2,7 +2,6 @@ mod common;
 
 use axum::http::StatusCode;
 use dtr::models::UserRole;
-use dtr::services::employees::create_employee;
 use dtr::services::payroll_controls::close_pay_period;
 use dtr::services::requirements::{create_type, list_for_employee};
 use dtr::services::timezone::company_date_now;
@@ -357,7 +356,7 @@ async fn change_pin_rejects_weak_pin_via_http() {
     };
 
     let code = unique_code("WPIN");
-    create_employee(
+    create_ready_employee(
         &pool,
         &code,
         "Weak PIN Test",

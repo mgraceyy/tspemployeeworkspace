@@ -44,19 +44,36 @@ impl Default for TestAppConfig {
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
 
-/// One shared pool for test setup and HTTP handlers. MemoryStore sessions avoid the
-/// PostgresStore deadlock that motivated smaller per-role pools; a single larger pool
-/// keeps reset/setup from starving while handlers run.
-const TEST_POOL_MAX_CONNECTIONS: u32 = 25;
+/// Handler/setup pool. Reset uses a separate pool so DELETE cleanup never waits behind
+/// HTTP handler connections checked out from this pool.
+const TEST_POOL_MAX_CONNECTIONS: u32 = 20;
+const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
+const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
+const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const RESET_MAX_ATTEMPTS: u32 = 5;
 
-async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx::Error> {
-    let url = std::env::var("DATABASE_URL").map_err(|e| sqlx::Error::Configuration(e.into()))?;
+fn test_pool_options(max_connections: u32, acquire_timeout: Duration) -> PgPoolOptions {
     PgPoolOptions::new()
         .max_connections(max_connections)
-        .acquire_timeout(Duration::from_secs(30))
-        .idle_timeout(Some(Duration::from_secs(10)))
+        .acquire_timeout(acquire_timeout)
+        .idle_timeout(Some(Duration::from_secs(5)))
+        .before_acquire(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("DISCARD ALL").execute(&mut *conn).await?;
+                Ok(true)
+            })
+        })
+}
+
+async fn connect_pool(
+    max_connections: u32,
+    acquire_timeout: Duration,
+    label: &str,
+) -> Result<PgPool, sqlx::Error> {
+    let url = std::env::var("DATABASE_URL").map_err(|e| sqlx::Error::Configuration(e.into()))?;
+    test_pool_options(max_connections, acquire_timeout)
         .connect(&url)
         .await
         .map_err(|e| {
@@ -65,10 +82,23 @@ async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx:
         })
 }
 
-async fn try_reset_shared_test_state(pool: &PgPool) -> Result<(), sqlx::Error> {
+async fn reset_pool() -> Result<PgPool, sqlx::Error> {
+    if let Some(pool) = TEST_RESET_POOL.get() {
+        return Ok(pool.clone());
+    }
+    let pool = connect_pool(
+        TEST_RESET_POOL_MAX_CONNECTIONS,
+        RESET_POOL_ACQUIRE_TIMEOUT,
+        "test reset database",
+    )
+    .await?;
+    let _ = TEST_RESET_POOL.set(pool);
+    Ok(TEST_RESET_POOL.get().expect("reset pool").clone())
+}
+
+async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
+    let pool = reset_pool().await?;
     let mut conn = pool.acquire().await?;
-    // Clear any aborted transaction state left on pooled connections.
-    let _ = sqlx::query("DISCARD ALL").execute(&mut *conn).await;
     sqlx::query("DELETE FROM closed_pay_periods")
         .execute(&mut *conn)
         .await?;
@@ -78,13 +108,13 @@ async fn try_reset_shared_test_state(pool: &PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn reset_shared_test_state(pool: &PgPool) {
+pub async fn reset_shared_test_state() {
     for attempt in 1..=RESET_MAX_ATTEMPTS {
-        match try_reset_shared_test_state(pool).await {
+        match try_reset_shared_test_state().await {
             Ok(()) => return,
             Err(error) if attempt < RESET_MAX_ATTEMPTS => {
                 eprintln!("reset shared test state attempt {attempt} failed: {error}");
-                tokio::time::sleep(Duration::from_millis(100 * u64::from(attempt))).await;
+                tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
             }
             Err(error) => panic!(
                 "reset shared test state failed after {RESET_MAX_ATTEMPTS} attempts: {error}"
@@ -146,7 +176,13 @@ pub async fn test_pool() -> Option<PgPool> {
     let pool = if let Some(pool) = TEST_DB_POOL.get() {
         pool.clone()
     } else {
-        match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
+        match connect_pool(
+            TEST_POOL_MAX_CONNECTIONS,
+            HANDLER_POOL_ACQUIRE_TIMEOUT,
+            "test database",
+        )
+        .await
+        {
             Ok(pool) => {
                 let _ = TEST_DB_POOL.set(pool);
                 TEST_DB_POOL.get()?.clone()
@@ -161,7 +197,7 @@ pub async fn test_pool() -> Option<PgPool> {
     };
 
     ensure_migrations(&pool).await;
-    reset_shared_test_state(&pool).await;
+    reset_shared_test_state().await;
     Some(pool)
 }
 

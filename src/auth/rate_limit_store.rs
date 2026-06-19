@@ -157,7 +157,7 @@ mod tests {
     async fn test_pool() -> Option<PgPool> {
         dotenvy::dotenv().ok();
         let url = std::env::var("DATABASE_URL").ok()?;
-        let pool = crate::db::connect(&url).await.ok()?;
+        let pool = crate::db::connect_with_options(&url, 1).await.ok()?;
         crate::db::migrate(&pool).await.ok()?;
         Some(pool)
     }
