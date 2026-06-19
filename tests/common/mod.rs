@@ -246,6 +246,36 @@ pub fn merge_cookies_from_headers(existing: &str, headers: &HeaderMap) -> String
     cookies
 }
 
+/// Apply every Set-Cookie from a response at once (login flush may emit clear + new id).
+fn apply_set_cookies(existing: &str, headers: &HeaderMap) -> String {
+    let mut updated_names = Vec::new();
+    let mut new_parts = Vec::new();
+    for value in headers.get_all(header::SET_COOKIE) {
+        let part = cookie_header(Some(value));
+        if part.is_empty() {
+            continue;
+        }
+        if let Some(name) = cookie_name(&part) {
+            updated_names.push(name);
+            new_parts.push(part);
+        }
+    }
+    if new_parts.is_empty() {
+        return existing.to_string();
+    }
+    let kept: Vec<&str> = existing
+        .split(';')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter(|part| cookie_name(part).is_none_or(|name| !updated_names.contains(&name)))
+        .collect();
+    if kept.is_empty() {
+        new_parts.join("; ")
+    } else {
+        format!("{}; {}", kept.join("; "), new_parts.join("; "))
+    }
+}
+
 pub fn expect_csrf_token(path: &str, status: StatusCode, html: &str) -> String {
     extract_csrf_token(html).unwrap_or_else(|| {
         panic!(
@@ -344,7 +374,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         url_encode(code),
         url_encode(pin)
     );
-    let (status, response, cookies, headers) =
+    let (status, response, pre_login_cookies, headers) =
         post_form_with_headers(app, "/login", &cookies, &body).await;
     let location = header_value(&headers, "location").unwrap_or_default();
     assert_eq!(
@@ -354,19 +384,15 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         response.chars().take(200).collect::<String>()
     );
 
-    // Login flushes the session id; follow the redirect so the Set-Cookie from the
-    // POST response is exercised before authenticated admin/manager requests.
-    let target = if location.is_empty() {
-        "/"
-    } else {
-        location.as_str()
-    };
-    let (status, home_html, cookies) = get(app, target, &cookies).await;
-    assert_eq!(
+    // Login calls session.flush(), which invalidates the pre-login id. Prefer the
+    // POST response Set-Cookie headers over incremental merge so we never replay a
+    // stale session id to authenticated routes.
+    let cookies = apply_set_cookies(&pre_login_cookies, &headers);
+    let (status, _, cookies) = get(app, "/", &cookies).await;
+    assert_ne!(
         status,
-        StatusCode::OK,
-        "session not established after login redirect to {target}: {status}; body: {}",
-        home_html.chars().take(200).collect::<String>()
+        StatusCode::SEE_OTHER,
+        "session cookie not accepted after login for {code}: redirect to login; cookies: {cookies}"
     );
     cookies
 }
