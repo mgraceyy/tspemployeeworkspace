@@ -46,15 +46,14 @@ impl Default for TestAppConfig {
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
-static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_DB_RESET_LOCK: Mutex<()> = Mutex::const_new(());
+static PREVIOUS_HANDLER_POOL: Mutex<Option<PgPool>> = Mutex::const_new(None);
 
-/// One setup pool shared by migrations, test fixtures, and HTTP handlers. A separate
-/// reset pool keeps truncate/delete from competing with request handlers.
-const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 10;
-const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
-const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Setup pool for migrations and fixtures. Each test_app gets its own handler pool.
+const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
+const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 8;
+const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
+const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const RESET_MAX_ATTEMPTS: u32 = 5;
 
 fn test_pool_options(max_connections: u32, acquire_timeout: Duration) -> PgPoolOptions {
@@ -62,12 +61,6 @@ fn test_pool_options(max_connections: u32, acquire_timeout: Duration) -> PgPoolO
         .max_connections(max_connections)
         .acquire_timeout(acquire_timeout)
         .idle_timeout(Some(Duration::from_secs(5)))
-        .before_acquire(|conn, _meta| {
-            Box::pin(async move {
-                sqlx::query("DISCARD ALL").execute(&mut *conn).await?;
-                Ok(true)
-            })
-        })
 }
 
 async fn connect_pool(
@@ -99,23 +92,27 @@ async fn setup_pool() -> Result<PgPool, sqlx::Error> {
     Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
 }
 
-async fn reset_pool() -> Result<PgPool, sqlx::Error> {
-    if let Some(pool) = TEST_RESET_POOL.get() {
-        return Ok(pool.clone());
+async fn close_previous_handler_pool() {
+    let mut previous = PREVIOUS_HANDLER_POOL.lock().await;
+    if let Some(pool) = previous.take() {
+        pool.close().await;
     }
-    let pool = connect_pool(
-        TEST_RESET_POOL_MAX_CONNECTIONS,
-        RESET_POOL_ACQUIRE_TIMEOUT,
-        "test reset database",
-    )
-    .await?;
-    let _ = TEST_RESET_POOL.set(pool);
-    Ok(TEST_RESET_POOL.get().expect("reset pool").clone())
 }
 
-async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
+async fn new_handler_pool() -> Result<PgPool, sqlx::Error> {
+    close_previous_handler_pool().await;
+    let pool = connect_pool(
+        TEST_HANDLER_POOL_MAX_CONNECTIONS,
+        HANDLER_POOL_ACQUIRE_TIMEOUT,
+        "test handler database",
+    )
+    .await?;
+    *PREVIOUS_HANDLER_POOL.lock().await = Some(pool.clone());
+    Ok(pool)
+}
+
+async fn try_reset_shared_test_state(pool: &PgPool) -> Result<(), sqlx::Error> {
     let _guard = TEST_DB_RESET_LOCK.lock().await;
-    let pool = reset_pool().await?;
     let mut conn = pool.acquire().await?;
     sqlx::query("DELETE FROM closed_pay_periods")
         .execute(&mut *conn)
@@ -126,9 +123,9 @@ async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn reset_shared_test_state() {
+pub async fn reset_shared_test_state(pool: &PgPool) {
     for attempt in 1..=RESET_MAX_ATTEMPTS {
-        match try_reset_shared_test_state().await {
+        match try_reset_shared_test_state(pool).await {
             Ok(()) => return,
             Err(error) if attempt < RESET_MAX_ATTEMPTS => {
                 eprintln!("reset shared test state attempt {attempt} failed: {error}");
@@ -202,7 +199,7 @@ pub async fn test_pool() -> Option<PgPool> {
     };
 
     ensure_migrations(&pool).await;
-    reset_shared_test_state().await;
+    reset_shared_test_state(&pool).await;
     Some(pool)
 }
 
@@ -210,7 +207,13 @@ pub async fn test_app(setup_pool: PgPool) -> Router {
     test_app_with_config(setup_pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
+pub async fn test_app_with_config(_setup_pool: PgPool, config: TestAppConfig) -> Router {
+    let pool = new_handler_pool().await.unwrap_or_else(|e| {
+        if std::env::var_os("CI").is_some() {
+            panic!("test handler pool connection failed in CI: {e}");
+        }
+        panic!("test handler pool connection failed: {e}");
+    });
     // Fresh in-memory store per app so sessions never leak across tests.
     let session_store = MemoryStore::default();
 
@@ -299,44 +302,6 @@ pub fn merge_cookies_from_headers(existing: &str, headers: &HeaderMap) -> String
         cookies = merge_cookies(&cookies, Some(value));
     }
     cookies
-}
-
-/// After login, prefer non-clearing Set-Cookie values over the pre-login session id.
-fn cookies_after_login_response(pre_login: &str, headers: &HeaderMap) -> String {
-    let mut updated_names: Vec<String> = Vec::new();
-    let mut new_parts: Vec<String> = Vec::new();
-    for value in headers.get_all(header::SET_COOKIE) {
-        let raw = value.to_str().ok().unwrap_or_default();
-        if is_clearing_set_cookie(raw) {
-            continue;
-        }
-        let part = cookie_header(Some(value));
-        if part.is_empty() {
-            continue;
-        }
-        if let Some(name) = cookie_name(&part) {
-            updated_names.push(name.to_string());
-            new_parts.push(part);
-        }
-    }
-    if new_parts.is_empty() {
-        return merge_cookies_from_headers(pre_login, headers);
-    }
-    let kept: Vec<&str> = pre_login
-        .split(';')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .filter(|part| {
-            cookie_name(part)
-                .map(|name| !updated_names.iter().any(|updated| updated == name))
-                .unwrap_or(true)
-        })
-        .collect();
-    if kept.is_empty() {
-        new_parts.join("; ")
-    } else {
-        format!("{}; {}", kept.join("; "), new_parts.join("; "))
-    }
 }
 
 pub fn expect_csrf_token(path: &str, status: StatusCode, html: &str) -> String {
@@ -437,7 +402,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         url_encode(code),
         url_encode(pin)
     );
-    let (status, response, pre_login_cookies, headers) =
+    let (status, response, cookies, headers) =
         post_form_with_headers(app, "/login", &cookies, &body).await;
     let location = header_value(&headers, "location").unwrap_or_default();
     assert_eq!(
@@ -446,7 +411,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         "login failed for {code}: got {status}; location={location}; body: {}",
         response.chars().take(200).collect::<String>()
     );
-    cookies_after_login_response(&pre_login_cookies, &headers)
+    merge_cookies_from_headers(&cookies, &headers)
 }
 
 pub async fn post_form(
