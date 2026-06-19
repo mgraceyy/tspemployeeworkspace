@@ -49,15 +49,17 @@ impl Default for TestAppConfig {
 }
 
 static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
-static APP_DB_POOL: OnceLock<PgPool> = OnceLock::new();
-static RATE_LIMIT_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+
+/// One shared pool for test setup and HTTP handlers. MemoryStore sessions avoid the
+/// PostgresStore deadlock that motivated smaller per-role pools; a single larger pool
+/// keeps reset/setup from starving while handlers run.
+const TEST_POOL_MAX_CONNECTIONS: u32 = 20;
 
 async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx::Error> {
     let url = std::env::var("DATABASE_URL").map_err(|e| sqlx::Error::Configuration(e.into()))?;
     PgPoolOptions::new()
         .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(30))
-        .idle_timeout(Some(Duration::from_secs(10)))
         .connect(&url)
         .await
         .map_err(|e| {
@@ -66,30 +68,19 @@ async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx:
         })
 }
 
-async fn shared_pool(lock: &OnceLock<PgPool>, max_connections: u32, label: &str) -> PgPool {
-    if let Some(pool) = lock.get() {
-        return pool.clone();
-    }
-    let pool = connect_pool(max_connections, label)
-        .await
-        .unwrap_or_else(|e| panic!("{label} connection failed: {e}"));
-    let _ = lock.set(pool);
-    lock.get().expect(label).clone()
-}
-
 pub async fn reset_shared_test_state(pool: &PgPool) {
+    let mut conn = pool
+        .acquire()
+        .await
+        .unwrap_or_else(|e| panic!("reset acquire connection: {e}"));
     sqlx::query("DELETE FROM closed_pay_periods")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .unwrap_or_else(|e| panic!("reset closed_pay_periods: {e}"));
     sqlx::query("DELETE FROM rate_limit_events")
-        .execute(pool)
+        .execute(&mut *conn)
         .await
         .unwrap_or_else(|e| panic!("reset rate_limit_events: {e}"));
-}
-
-async fn app_db_pool() -> PgPool {
-    shared_pool(&APP_DB_POOL, 8, "app database").await
 }
 
 pub fn url_encode(value: &str) -> String {
@@ -135,7 +126,7 @@ pub async fn test_pool() -> Option<PgPool> {
     let pool = if let Some(pool) = TEST_DB_POOL.get() {
         pool.clone()
     } else {
-        let pool = match connect_pool(5, "test database").await {
+        let pool = match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
             Ok(pool) => pool,
             Err(e) => {
                 if std::env::var_os("CI").is_some() {
@@ -159,11 +150,7 @@ pub async fn test_app(pool: PgPool) -> Router {
     test_app_with_config(pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(_test_pool: PgPool, config: TestAppConfig) -> Router {
-    // Keep HTTP handlers on a dedicated pool so test setup queries cannot exhaust
-    // the same connections and deadlock requests (~30s acquire timeouts on CI).
-    let pool = app_db_pool().await;
-
+pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
     // In-memory sessions avoid sharing the SQLx pool with handlers (PostgresStore
     // can exhaust a small pool on CI and deadlock requests).
     let session_store = MemoryStore::default();
@@ -176,10 +163,9 @@ pub async fn test_app_with_config(_test_pool: PgPool, config: TestAppConfig) -> 
         .with_signed(session_key);
 
     let (login_limiter, post_limiter) = if config.shared_rate_limits {
-        let limit_pool = shared_pool(&RATE_LIMIT_DB_POOL, 2, "rate limit database").await;
         (
-            LoginLimiter::postgres(limit_pool.clone()),
-            PostRateLimiter::postgres(limit_pool),
+            LoginLimiter::postgres(pool.clone()),
+            PostRateLimiter::postgres(pool.clone()),
         )
     } else {
         (LoginLimiter::in_memory(), PostRateLimiter::in_memory())
