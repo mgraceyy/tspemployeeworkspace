@@ -48,12 +48,11 @@ impl Default for TestAppConfig {
     }
 }
 
-static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 
-/// One shared pool for test setup and HTTP handlers. MemoryStore sessions avoid the
-/// PostgresStore deadlock that motivated smaller per-role pools; a single larger pool
-/// keeps reset/setup from starving while handlers run.
-const TEST_POOL_MAX_CONNECTIONS: u32 = 20;
+/// Fresh pool per test so connections are released when the test ends. A process-wide
+/// pool on CI was exhausting slots and causing 30s acquire timeouts in reset/login.
+const TEST_POOL_MAX_CONNECTIONS: u32 = 5;
 
 async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx::Error> {
     let url = std::env::var("DATABASE_URL").map_err(|e| sqlx::Error::Configuration(e.into()))?;
@@ -119,29 +118,30 @@ pub async fn create_ready_employee(
     Ok(employee)
 }
 
+async fn ensure_migrations(pool: &PgPool) {
+    if MIGRATIONS_DONE.get().is_some() {
+        return;
+    }
+    dtr::db::migrate(pool)
+        .await
+        .expect("test database migrations");
+    let _ = MIGRATIONS_DONE.set(());
+}
+
 pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     std::env::var("DATABASE_URL").ok()?;
 
-    let pool = if let Some(pool) = TEST_DB_POOL.get() {
-        pool.clone()
-    } else {
-        let pool = match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
-            Ok(pool) => pool,
-            Err(e) => {
-                if std::env::var_os("CI").is_some() {
-                    panic!("test database connection failed in CI: {e}");
-                }
-                return None;
+    let pool = match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
+        Ok(pool) => pool,
+        Err(e) => {
+            if std::env::var_os("CI").is_some() {
+                panic!("test database connection failed in CI: {e}");
             }
-        };
-        dtr::db::migrate(&pool)
-            .await
-            .expect("test database migrations");
-        let _ = TEST_DB_POOL.set(pool);
-        TEST_DB_POOL.get()?.clone()
+            return None;
+        }
     };
-
+    ensure_migrations(&pool).await;
     reset_shared_test_state(&pool).await;
     Some(pool)
 }
