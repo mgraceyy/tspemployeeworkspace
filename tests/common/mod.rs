@@ -19,14 +19,8 @@ use dtr::state::AppState;
 use dtr::templates::engine;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower::ServiceExt;
-use tower_sessions::{
-    cookie::{Key, SameSite},
-    Expiry, MemoryStore, SessionManagerLayer,
-};
+use tower_sessions::{cookie::SameSite, Expiry, MemoryStore, SessionManagerLayer};
 use uuid::Uuid;
-
-const TEST_SESSION_SECRET: &[u8] =
-    b"test-session-secret-at-least-64-characters-long-for-signed-cookies";
 
 #[derive(Clone)]
 pub struct TestAppConfig {
@@ -52,6 +46,7 @@ static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 static APP_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 static RATE_LIMIT_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static SESSION_STORE: OnceLock<MemoryStore> = OnceLock::new();
 
 /// Setup queries (migrations, reset, fixture inserts) — kept separate from HTTP handlers.
 const TEST_POOL_MAX_CONNECTIONS: u32 = 5;
@@ -181,14 +176,15 @@ pub async fn test_app_with_config(_test_pool: PgPool, config: TestAppConfig) -> 
 
     // In-memory sessions avoid sharing the SQLx pool with handlers (PostgresStore
     // can exhaust a small pool on CI and deadlock requests).
-    let session_store = MemoryStore::default();
+    let session_store = SESSION_STORE.get_or_init(MemoryStore::default).clone();
 
-    let session_key = Key::try_from(TEST_SESSION_SECRET).expect("session key");
+    // Plaintext session cookies: our oneshot client replays raw Cookie headers and
+    // cannot round-trip signed cookie values the way a browser would.
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false)
         .with_same_site(SameSite::Lax)
         .with_expiry(Expiry::OnInactivity(time::Duration::hours(8)))
-        .with_signed(session_key);
+        .with_always_save(true);
 
     let (login_limiter, post_limiter) = if config.shared_rate_limits {
         let limit_pool = shared_pool(&RATE_LIMIT_DB_POOL, 2, "rate limit database").await;
@@ -246,6 +242,23 @@ pub fn merge_cookies(existing: &str, set_cookie: Option<&header::HeaderValue>) -
     } else {
         format!("{}; {new_cookie}", kept.join("; "))
     }
+}
+
+pub fn merge_cookies_from_headers(existing: &str, headers: &HeaderMap) -> String {
+    let mut cookies = existing.to_string();
+    for value in headers.get_all(header::SET_COOKIE) {
+        cookies = merge_cookies(&cookies, Some(value));
+    }
+    cookies
+}
+
+pub fn expect_csrf_token(path: &str, status: StatusCode, html: &str) -> String {
+    extract_csrf_token(html).unwrap_or_else(|| {
+        panic!(
+            "csrf token missing for GET {path}: status={status}; body: {}",
+            html.chars().take(300).collect::<String>()
+        )
+    })
 }
 
 pub fn extract_csrf_token(html: &str) -> Option<String> {
@@ -318,7 +331,7 @@ pub async fn get_with_extra_headers(
         .expect("request");
     let status = response.status();
     let headers = response.headers().clone();
-    let set_cookie = merge_cookies(cookies, response.headers().get(header::SET_COOKIE));
+    let set_cookie = merge_cookies_from_headers(cookies, &headers);
     let body = response_body(response).await;
     (status, body, set_cookie, headers)
 }
@@ -331,7 +344,7 @@ pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
         "GET /login failed: {status}; body: {}",
         login_html.chars().take(200).collect::<String>()
     );
-    let csrf = extract_csrf_token(&login_html).expect("csrf token");
+    let csrf = expect_csrf_token("/login", status, &login_html);
     let body = format!(
         "employee_code={}&pin={}&csrf_token={csrf}",
         url_encode(code),
@@ -412,7 +425,7 @@ pub async fn post_with_body_and_headers(
         .expect("request");
     let status = response.status();
     let headers = response.headers().clone();
-    let set_cookie = merge_cookies(cookies, response.headers().get(header::SET_COOKIE));
+    let set_cookie = merge_cookies_from_headers(cookies, &headers);
     let response_body = response_body(response).await;
     (status, response_body, set_cookie, headers)
 }
