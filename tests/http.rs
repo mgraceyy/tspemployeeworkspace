@@ -379,8 +379,17 @@ async fn change_pin_rejects_weak_pin_via_http() {
     let body = format!("current_pin={TEST_PIN}&new_pin=1234&confirm_pin=1234&csrf_token={csrf}");
     let (status, response, _) = post_form(&mut app, "/change-pin", &cookies, &body).await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert!(response.contains("too easy to guess"));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "change-pin weak pin: status={status}; body: {}",
+        response.chars().take(300).collect::<String>()
+    );
+    assert!(
+        response.contains("too easy to guess"),
+        "change-pin weak pin: body: {}",
+        response.chars().take(300).collect::<String>()
+    );
 
     cleanup_employee(&pool, &code).await;
 }

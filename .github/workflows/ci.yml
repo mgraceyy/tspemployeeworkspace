@@ -52,9 +52,7 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Security audit
-        run: |
-          cargo install cargo-audit --version 0.21.2 --locked
-          cargo audit
+        uses: rustsec/audit-check@v2.0.0
 
       - name: License and dependency policy
         run: |
