@@ -130,9 +130,7 @@ pub async fn create_ready_employee(
 
 pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
-    if std::env::var("DATABASE_URL").ok().is_none() {
-        return None;
-    }
+    std::env::var("DATABASE_URL").ok()?;
 
     let pool = if let Some(pool) = TEST_DB_POOL.get() {
         pool.clone()
