@@ -49,16 +49,21 @@ impl Default for TestAppConfig {
 }
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
+static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static APP_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static RATE_LIMIT_DB_POOL: OnceLock<PgPool> = OnceLock::new();
 
-/// Fresh pool per test so connections are released when the test ends. A process-wide
-/// pool on CI was exhausting slots and causing 30s acquire timeouts in reset/login.
+/// Setup queries (migrations, reset, fixture inserts) — kept separate from HTTP handlers.
 const TEST_POOL_MAX_CONNECTIONS: u32 = 5;
+/// Dedicated pool for axum handlers so setup work cannot starve request handling on CI.
+const APP_POOL_MAX_CONNECTIONS: u32 = 10;
 
 async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx::Error> {
     let url = std::env::var("DATABASE_URL").map_err(|e| sqlx::Error::Configuration(e.into()))?;
     PgPoolOptions::new()
         .max_connections(max_connections)
         .acquire_timeout(Duration::from_secs(30))
+        .idle_timeout(Some(Duration::from_secs(10)))
         .connect(&url)
         .await
         .map_err(|e| {
@@ -67,17 +72,28 @@ async fn connect_pool(max_connections: u32, label: &str) -> Result<PgPool, sqlx:
         })
 }
 
-pub async fn reset_shared_test_state(pool: &PgPool) {
-    let mut conn = pool
-        .acquire()
+async fn shared_pool(lock: &OnceLock<PgPool>, max_connections: u32, label: &str) -> PgPool {
+    if let Some(pool) = lock.get() {
+        return pool.clone();
+    }
+    let pool = connect_pool(max_connections, label)
         .await
-        .unwrap_or_else(|e| panic!("reset acquire connection: {e}"));
+        .unwrap_or_else(|e| panic!("{label} connection failed: {e}"));
+    let _ = lock.set(pool);
+    lock.get().expect(label).clone()
+}
+
+async fn app_db_pool() -> PgPool {
+    shared_pool(&APP_DB_POOL, APP_POOL_MAX_CONNECTIONS, "app database").await
+}
+
+pub async fn reset_shared_test_state(pool: &PgPool) {
     sqlx::query("DELETE FROM closed_pay_periods")
-        .execute(&mut *conn)
+        .execute(pool)
         .await
         .unwrap_or_else(|e| panic!("reset closed_pay_periods: {e}"));
     sqlx::query("DELETE FROM rate_limit_events")
-        .execute(&mut *conn)
+        .execute(pool)
         .await
         .unwrap_or_else(|e| panic!("reset rate_limit_events: {e}"));
 }
@@ -132,15 +148,23 @@ pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     std::env::var("DATABASE_URL").ok()?;
 
-    let pool = match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
-        Ok(pool) => pool,
-        Err(e) => {
-            if std::env::var_os("CI").is_some() {
-                panic!("test database connection failed in CI: {e}");
+    let pool = if let Some(pool) = TEST_DB_POOL.get() {
+        pool.clone()
+    } else {
+        match connect_pool(TEST_POOL_MAX_CONNECTIONS, "test database").await {
+            Ok(pool) => {
+                let _ = TEST_DB_POOL.set(pool);
+                TEST_DB_POOL.get()?.clone()
             }
-            return None;
+            Err(e) => {
+                if std::env::var_os("CI").is_some() {
+                    panic!("test database connection failed in CI: {e}");
+                }
+                return None;
+            }
         }
     };
+
     ensure_migrations(&pool).await;
     reset_shared_test_state(&pool).await;
     Some(pool)
@@ -150,7 +174,11 @@ pub async fn test_app(pool: PgPool) -> Router {
     test_app_with_config(pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
+pub async fn test_app_with_config(_test_pool: PgPool, config: TestAppConfig) -> Router {
+    // HTTP handlers use a dedicated pool so test setup cannot exhaust the same connections
+    // and deadlock requests (~30s acquire timeouts on CI).
+    let pool = app_db_pool().await;
+
     // In-memory sessions avoid sharing the SQLx pool with handlers (PostgresStore
     // can exhaust a small pool on CI and deadlock requests).
     let session_store = MemoryStore::default();
@@ -163,9 +191,10 @@ pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router
         .with_signed(session_key);
 
     let (login_limiter, post_limiter) = if config.shared_rate_limits {
+        let limit_pool = shared_pool(&RATE_LIMIT_DB_POOL, 2, "rate limit database").await;
         (
-            LoginLimiter::postgres(pool.clone()),
-            PostRateLimiter::postgres(pool.clone()),
+            LoginLimiter::postgres(limit_pool.clone()),
+            PostRateLimiter::postgres(limit_pool),
         )
     } else {
         (LoginLimiter::in_memory(), PostRateLimiter::in_memory())
@@ -191,14 +220,31 @@ pub fn cookie_header(set_cookie: Option<&header::HeaderValue>) -> String {
     value.split(';').next().unwrap_or_default().to_string()
 }
 
+fn cookie_name(pair: &str) -> Option<&str> {
+    let name = pair.trim().split('=').next()?;
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 pub fn merge_cookies(existing: &str, set_cookie: Option<&header::HeaderValue>) -> String {
     let new_cookie = cookie_header(set_cookie);
-    if existing.is_empty() {
+    if new_cookie.is_empty() {
+        return existing.to_string();
+    }
+    let new_name = cookie_name(&new_cookie);
+    let kept: Vec<&str> = existing
+        .split(';')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter(|part| cookie_name(part) != new_name)
+        .collect();
+    if kept.is_empty() {
         new_cookie
-    } else if new_cookie.is_empty() {
-        existing.to_string()
     } else {
-        format!("{existing}; {new_cookie}")
+        format!("{}; {new_cookie}", kept.join("; "))
     }
 }
 
@@ -278,7 +324,13 @@ pub async fn get_with_extra_headers(
 }
 
 pub async fn login_as(app: &mut Router, code: &str, pin: &str) -> String {
-    let (_, login_html, cookies) = get(app, "/login", "").await;
+    let (status, login_html, cookies) = get(app, "/login", "").await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "GET /login failed: {status}; body: {}",
+        login_html.chars().take(200).collect::<String>()
+    );
     let csrf = extract_csrf_token(&login_html).expect("csrf token");
     let body = format!(
         "employee_code={}&pin={}&csrf_token={csrf}",
