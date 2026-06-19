@@ -43,13 +43,15 @@ impl Default for TestAppConfig {
 }
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
-static TEST_DB_POOL: OnceLock<PgPool> = OnceLock::new();
+static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
+static TEST_HANDLER_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
 
-/// Handler/setup pool. Reset uses a separate pool so DELETE cleanup never waits behind
-/// HTTP handler connections checked out from this pool.
-const TEST_POOL_MAX_CONNECTIONS: u32 = 20;
+/// Three pools so setup queries, HTTP handlers, and per-test reset never starve each other.
+const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
+const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 15;
 const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
+const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 const RESET_MAX_ATTEMPTS: u32 = 5;
@@ -80,6 +82,34 @@ async fn connect_pool(
             eprintln!("{label} connection failed: {e}");
             e
         })
+}
+
+async fn setup_pool() -> Result<PgPool, sqlx::Error> {
+    if let Some(pool) = TEST_SETUP_POOL.get() {
+        return Ok(pool.clone());
+    }
+    let pool = connect_pool(
+        TEST_SETUP_POOL_MAX_CONNECTIONS,
+        SETUP_POOL_ACQUIRE_TIMEOUT,
+        "test setup database",
+    )
+    .await?;
+    let _ = TEST_SETUP_POOL.set(pool);
+    Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
+}
+
+async fn handler_pool() -> Result<PgPool, sqlx::Error> {
+    if let Some(pool) = TEST_HANDLER_POOL.get() {
+        return Ok(pool.clone());
+    }
+    let pool = connect_pool(
+        TEST_HANDLER_POOL_MAX_CONNECTIONS,
+        HANDLER_POOL_ACQUIRE_TIMEOUT,
+        "test handler database",
+    )
+    .await?;
+    let _ = TEST_HANDLER_POOL.set(pool);
+    Ok(TEST_HANDLER_POOL.get().expect("handler pool").clone())
 }
 
 async fn reset_pool() -> Result<PgPool, sqlx::Error> {
@@ -173,26 +203,13 @@ pub async fn test_pool() -> Option<PgPool> {
     dotenvy::dotenv().ok();
     std::env::var("DATABASE_URL").ok()?;
 
-    let pool = if let Some(pool) = TEST_DB_POOL.get() {
-        pool.clone()
-    } else {
-        match connect_pool(
-            TEST_POOL_MAX_CONNECTIONS,
-            HANDLER_POOL_ACQUIRE_TIMEOUT,
-            "test database",
-        )
-        .await
-        {
-            Ok(pool) => {
-                let _ = TEST_DB_POOL.set(pool);
-                TEST_DB_POOL.get()?.clone()
+    let pool = match setup_pool().await {
+        Ok(pool) => pool,
+        Err(e) => {
+            if std::env::var_os("CI").is_some() {
+                panic!("test setup pool connection failed in CI: {e}");
             }
-            Err(e) => {
-                if std::env::var_os("CI").is_some() {
-                    panic!("test database connection failed in CI: {e}");
-                }
-                return None;
-            }
+            return None;
         }
     };
 
@@ -201,11 +218,17 @@ pub async fn test_pool() -> Option<PgPool> {
     Some(pool)
 }
 
-pub async fn test_app(pool: PgPool) -> Router {
-    test_app_with_config(pool, TestAppConfig::default()).await
+pub async fn test_app(setup_pool: PgPool) -> Router {
+    test_app_with_config(setup_pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(pool: PgPool, config: TestAppConfig) -> Router {
+pub async fn test_app_with_config(_setup_pool: PgPool, config: TestAppConfig) -> Router {
+    let pool = handler_pool().await.unwrap_or_else(|e| {
+        if std::env::var_os("CI").is_some() {
+            panic!("test handler pool connection failed in CI: {e}");
+        }
+        panic!("test handler pool connection failed: {e}");
+    });
     // Fresh in-memory store per app so sessions never leak across tests.
     let session_store = MemoryStore::default();
 
