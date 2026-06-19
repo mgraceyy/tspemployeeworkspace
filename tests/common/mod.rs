@@ -44,12 +44,12 @@ impl Default for TestAppConfig {
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
-static TEST_HANDLER_POOL: OnceLock<PgPool> = OnceLock::new();
 static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
 
-/// Three pools so setup queries, HTTP handlers, and per-test reset never starve each other.
+/// Setup + reset pools are process-wide. Each test_app gets its own handler pool so
+/// connections never leak across tests when a static handler pool is reused.
 const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
-const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 15;
+const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 8;
 const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
 const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -98,18 +98,13 @@ async fn setup_pool() -> Result<PgPool, sqlx::Error> {
     Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
 }
 
-async fn handler_pool() -> Result<PgPool, sqlx::Error> {
-    if let Some(pool) = TEST_HANDLER_POOL.get() {
-        return Ok(pool.clone());
-    }
-    let pool = connect_pool(
+async fn new_handler_pool() -> Result<PgPool, sqlx::Error> {
+    connect_pool(
         TEST_HANDLER_POOL_MAX_CONNECTIONS,
         HANDLER_POOL_ACQUIRE_TIMEOUT,
         "test handler database",
     )
-    .await?;
-    let _ = TEST_HANDLER_POOL.set(pool);
-    Ok(TEST_HANDLER_POOL.get().expect("handler pool").clone())
+    .await
 }
 
 async fn reset_pool() -> Result<PgPool, sqlx::Error> {
@@ -223,7 +218,7 @@ pub async fn test_app(setup_pool: PgPool) -> Router {
 }
 
 pub async fn test_app_with_config(_setup_pool: PgPool, config: TestAppConfig) -> Router {
-    let pool = handler_pool().await.unwrap_or_else(|e| {
+    let pool = new_handler_pool().await.unwrap_or_else(|e| {
         if std::env::var_os("CI").is_some() {
             panic!("test handler pool connection failed in CI: {e}");
         }

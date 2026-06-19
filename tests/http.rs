@@ -204,7 +204,12 @@ async fn admin_payroll_export_returns_csv() {
     let cookies = login_as(&mut app, &code, TEST_PIN).await;
     let (status, body, _) = get(&mut app, "/admin/reports/export.csv", &cookies).await;
 
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "admin csv export failed: {status}; body: {}",
+        body.chars().take(300).collect::<String>()
+    );
     assert!(body.contains("Employee Code"));
     assert!(body.contains("Regular Hours"));
 
