@@ -6,13 +6,17 @@ use crate::error::{AppError, AppResult};
 use crate::models::{CompanySettings, PayrollLineWithEmployee, PayrollRun, PayrollRunStatus};
 use crate::services::compensation::get_compensation_map_as_of;
 use crate::services::payroll_controls::is_period_exactly_closed;
+use crate::services::profile::get_employment_spans;
 use crate::services::reports::{assert_canonical_pay_period, payroll_summary, PayrollFilters};
 
 use super::compute::{
-    allowance_pay_cents_for_period, base_pay_cents_for_period, gross_pay_cents,
-    no_show_deduction_cents, ot_pay_cents, GrossPayInput,
+    allowance_pay_cents_for_period, base_pay_cents_for_period, employed_days_in_period,
+    gross_pay_cents, no_show_deduction_cents, ot_pay_cents, prorated_period_amount_cents,
+    GrossPayInput,
 };
-use super::deductions::{apply_deduction_defaults_for_run, refresh_all_line_net_pay};
+use super::deductions::refresh_all_line_net_pay;
+use super::deductions_auto::{apply_automatic_deductions_for_run, preflight_finalize_run};
+use super::labor_premiums::sum_premium_pay_for_period;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -136,8 +140,9 @@ pub async fn list_lines_for_run(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
                 e.is_active AS employee_is_active,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
+                l.lwop_days, l.employed_days, l.period_calendar_days,
                 l.base_pay_cents, l.allowance_cents, l.no_show_deduction_cents, l.ot_pay_cents,
-                l.gross_pay_cents, l.net_pay_cents,
+                l.premium_pay_cents, l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
                 ), 0) AS total_deduction_cents
@@ -200,19 +205,23 @@ pub async fn create_draft_run(
         .iter()
         .map(|row| row.employee_code.clone())
         .collect();
-    let employee_map = active_employee_ids_by_code(&mut tx, &employee_codes).await?;
+    let employee_map = employee_ids_by_code(&mut tx, &employee_codes).await?;
     let employee_ids: Vec<Uuid> = employee_map.values().copied().collect();
     let compensation_map = get_compensation_map_as_of(pool, &employee_ids, period_end).await?;
+    let employment_map = get_employment_spans(pool, &employee_ids).await?;
 
     for row in &summary_rows {
         insert_line_for_summary(
+            pool,
             &mut tx,
             run_id,
             row,
+            period_start,
             period_end,
             settings,
             &employee_map,
             &compensation_map,
+            &employment_map,
         )
         .await?;
     }
@@ -221,11 +230,14 @@ pub async fn create_draft_run(
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
 
-    apply_deduction_defaults_for_run(pool, run_id).await?;
+    if let Err(err) = apply_automatic_deductions_for_run(pool, run_id, settings).await {
+        let _ = void_draft_run(pool, run_id).await;
+        return Err(err);
+    }
     Ok(run_id)
 }
 
-async fn active_employee_ids_by_code(
+async fn employee_ids_by_code(
     tx: &mut Transaction<'_, Postgres>,
     employee_codes: &[String],
 ) -> AppResult<std::collections::HashMap<String, Uuid>> {
@@ -233,25 +245,27 @@ async fn active_employee_ids_by_code(
         return Ok(std::collections::HashMap::new());
     }
 
-    let rows: Vec<(String, Uuid)> = sqlx::query_as(
-        "SELECT employee_code, id FROM employees
-         WHERE employee_code = ANY($1) AND is_active = TRUE",
-    )
-    .bind(employee_codes)
-    .fetch_all(&mut **tx)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
+    let rows: Vec<(String, Uuid)> =
+        sqlx::query_as("SELECT employee_code, id FROM employees WHERE employee_code = ANY($1)")
+            .bind(employee_codes)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
     Ok(rows.into_iter().collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn insert_line_for_summary(
+    pool: &PgPool,
     tx: &mut Transaction<'_, Postgres>,
     run_id: Uuid,
     row: &crate::services::reports::PayrollRow,
-    _period_end: Date,
+    period_start: Date,
+    period_end: Date,
     settings: &CompanySettings,
     employee_map: &std::collections::HashMap<String, Uuid>,
     compensation_map: &std::collections::HashMap<Uuid, crate::models::CompensationProfile>,
+    employment_map: &std::collections::HashMap<Uuid, super::compute::EmploymentSpan>,
 ) -> AppResult<()> {
     let employee_id = employee_map
         .get(&row.employee_code)
@@ -268,9 +282,40 @@ async fn insert_line_for_summary(
         return Ok(());
     };
 
-    let base = base_pay_cents_for_period(comp.monthly_salary_cents, settings.pay_period);
-    let allowance =
+    let span =
+        employment_map
+            .get(&employee_id)
+            .copied()
+            .unwrap_or(super::compute::EmploymentSpan {
+                date_hired: None,
+                date_separated: None,
+            });
+    let (employed_days, period_calendar_days) =
+        employed_days_in_period(period_start, period_end, span);
+    if employed_days <= 0 {
+        tracing::warn!(
+            employee_code = %row.employee_code,
+            "Skipping payroll line: no employed days in pay period"
+        );
+        return Ok(());
+    }
+
+    let premium = sum_premium_pay_for_period(
+        pool,
+        employee_id,
+        period_start,
+        period_end,
+        settings,
+        comp.monthly_salary_cents,
+    )
+    .await?;
+
+    let full_base = base_pay_cents_for_period(comp.monthly_salary_cents, settings.pay_period);
+    let base = prorated_period_amount_cents(full_base, employed_days, period_calendar_days);
+    let full_allowance =
         allowance_pay_cents_for_period(comp.monthly_allowance_cents(), settings.pay_period);
+    let allowance =
+        prorated_period_amount_cents(full_allowance, employed_days, period_calendar_days);
     let no_show_ded = no_show_deduction_cents(comp.monthly_salary_cents, row.no_show_days);
     let ot = ot_pay_cents(
         comp.monthly_salary_cents,
@@ -284,14 +329,22 @@ async fn insert_line_for_summary(
         pay_period: settings.pay_period,
         approved_ot_minutes: row.approved_ot_minutes,
         no_show_days: row.no_show_days,
+        premium_pay_cents: premium,
+        employed_days: Some(employed_days),
+        period_calendar_days: Some(period_calendar_days),
     });
+
+    let employed_days_i32 = i32::try_from(employed_days).unwrap_or(i32::MAX);
+    let period_calendar_days_i32 = i32::try_from(period_calendar_days).unwrap_or(i32::MAX);
+    let lwop_days_i32 = i32::try_from(row.lwop_days).unwrap_or(i32::MAX);
 
     sqlx::query(
         "INSERT INTO payroll_lines
             (run_id, employee_id, regular_minutes, approved_ot_minutes, pending_ot_minutes,
-             no_show_days, base_pay_cents, allowance_cents, no_show_deduction_cents, ot_pay_cents,
-             gross_pay_cents, net_pay_cents)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+             no_show_days, lwop_days, employed_days, period_calendar_days,
+             base_pay_cents, allowance_cents, no_show_deduction_cents, ot_pay_cents,
+             premium_pay_cents, gross_pay_cents, net_pay_cents)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
     )
     .bind(run_id)
     .bind(employee_id)
@@ -299,10 +352,14 @@ async fn insert_line_for_summary(
     .bind(row.approved_ot_minutes as i32)
     .bind(row.pending_ot_minutes as i32)
     .bind(row.no_show_days as i32)
+    .bind(lwop_days_i32)
+    .bind(employed_days_i32)
+    .bind(period_calendar_days_i32)
     .bind(base)
     .bind(allowance)
     .bind(no_show_ded)
     .bind(ot)
+    .bind(premium)
     .bind(gross)
     .bind(gross)
     .execute(&mut **tx)
@@ -374,6 +431,21 @@ pub async fn finalize_run(pool: &PgPool, run_id: Uuid, finalized_by: Uuid) -> Ap
         )));
     }
 
+    if is_draft_attendance_stale(pool, &run).await? {
+        return Err(AppError::bad_request(
+            "Cannot finalize: attendance changed since this draft was created — void the run, update attendance, close the period again, and create a new draft",
+        ));
+    }
+
+    let settings = crate::services::settings::get_settings(pool).await?;
+    let preflight = preflight_finalize_run(pool, run_id, &settings).await?;
+    if preflight.over_gross_count > 0 {
+        return Err(AppError::bad_request(format!(
+            "Cannot finalize: {} employee line(s) have deductions exceeding gross pay",
+            preflight.over_gross_count
+        )));
+    }
+
     refresh_all_line_net_pay(pool, run_id).await?;
 
     let updated = sqlx::query(
@@ -422,6 +494,7 @@ pub fn attendance_snapshot_hash(rows: &[crate::services::reports::PayrollRow]) -
         row.approved_ot_minutes.hash(&mut hasher);
         row.pending_ot_minutes.hash(&mut hasher);
         row.no_show_days.hash(&mut hasher);
+        row.lwop_days.hash(&mut hasher);
     }
     format!("{:016x}", hasher.finish())
 }
@@ -460,6 +533,7 @@ mod tests {
             vacation_days: 0,
             official_leave_days: 0,
             offset_days: 0,
+            lwop_days: 0,
             no_show_days: 0,
         }
     }

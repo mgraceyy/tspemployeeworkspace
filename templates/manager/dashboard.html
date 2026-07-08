@@ -1,30 +1,33 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Manager Dashboard</h1>
-  <p class="muted">Today: {{ content.today }} · Asia/Manila</p>
-</section>
-
-{% if content.pending_count > 0 or content.missing_eod_count > 0 %}
-<div class="summary-cards">
-  {% if content.missing_eod_count > 0 %}
-  <a href="/manager/eod" class="summary-card summary-card-alert">
-    <span class="summary-card-value">{{ content.missing_eod_count }}</span>
-    <span class="summary-card-label">Missing EOD today</span>
-  </a>
-  {% endif %}
-  {% if content.pending_count > 0 %}
-  <div class="summary-card summary-card-alert">
-    <span class="summary-card-value">{{ content.pending_count }}</span>
-    <span class="summary-card-label">Pending OT approvals</span>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Manager Dashboard</h1>
+    <p class="page-hero-lead">Team attendance, overtime approvals, and EOD status for today.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.today }}</span>
+      {% if content.pending_count > 0 %}
+      <span class="stat-pill stat-pill-warn">{{ content.pending_count }} pending OT</span>
+      {% endif %}
+      {% if content.missing_eod_count > 0 %}
+      <span class="stat-pill stat-pill-warn">{{ content.missing_eod_count }} missing EOD</span>
+      {% endif %}
+    </div>
   </div>
-  {% endif %}
-</div>
-{% endif %}
+  <div class="page-hero-actions">
+    <a href="/manager/eod" class="btn">Team EOD</a>
+    <a href="/manager/team" class="btn">Team list</a>
+  </div>
+</header>
 
-<section class="panel">
-  <h2>Team Attendance Today</h2>
-  <p class="hint">Use <strong>Offset</strong> when absence will be made up with hours worked on another day.</p>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Team attendance today</h2>
+      <p class="data-panel-desc">Use <strong>Offset</strong> when absence will be made up with hours worked on another day.</p>
+    </div>
+  </div>
   {% if content.attendance %}
   <div class="table-wrap">
     <table>
@@ -53,9 +56,9 @@
           <td><span class="badge badge-{{ member.status }}">{{ member.status_label }}</span></td>
           <td class="actions">
             {% if member.entry_id %}
-            <a href="/manager/correct/{{ member.entry_id }}" class="btn btn-small btn-primary">Correct</a>
+            <a href="/manager/correct/{{ member.entry_id }}" class="btn btn-small btn-primary">Edit</a>
             {% elif member.can_correct %}
-            <a href="/manager/team/{{ member.employee_id }}/correct" class="btn btn-small btn-primary">Add Entry</a>
+            <a href="/manager/team/{{ member.employee_id }}/correct" class="btn btn-small btn-primary">Add entry</a>
             {% endif %}
             {% if member.can_mark_absence %}
             <form method="post" action="/manager/absence" class="inline-form actions">
@@ -66,6 +69,7 @@
                 <option value="sick_leave">Sick leave</option>
                 <option value="vacation">Vacation</option>
                 <option value="official_leave">Official leave</option>
+                <option value="lwop">LWOP (unpaid)</option>
                 <option value="offset">Offset</option>
               </select>
               <button type="submit" class="btn btn-small btn-danger">Mark</button>
@@ -82,13 +86,15 @@
   {% endif %}
 </section>
 
-<section class="panel{% if content.pending_count > 0 %} panel-highlight{% endif %}">
-  <h2>
-    Pending OT Approvals
-    {% if content.pending_count > 0 %}
-    <span class="nav-badge">{{ content.pending_count }}</span>
-    {% endif %}
-  </h2>
+<section class="data-panel{% if content.pending_count > 0 %} panel-highlight{% endif %}">
+  <div class="data-panel-header">
+    <h2>
+      Pending OT approvals
+      {% if content.pending_count > 0 %}
+      <span class="nav-badge">{{ content.pending_count }}</span>
+      {% endif %}
+    </h2>
+  </div>
   {% if content.pending_ot %}
   <div class="table-wrap">
     <table>
@@ -137,16 +143,18 @@
   {% endif %}
 </section>
 
-<section class="panel{% if content.missing_eod_count > 0 %} panel-highlight{% endif %}">
-  <h2>
-    EOD Status Today
-    {% if content.missing_eod_count > 0 %}
-    <span class="nav-badge">{{ content.missing_eod_count }}</span>
-    {% endif %}
-  </h2>
+<section class="data-panel{% if content.missing_eod_count > 0 %} panel-highlight{% endif %}">
+  <div class="data-panel-header">
+    <h2>
+      EOD status today
+      {% if content.missing_eod_count > 0 %}
+      <span class="nav-badge">{{ content.missing_eod_count }}</span>
+      {% endif %}
+    </h2>
+  </div>
   {% if content.missing_eod_count > 0 %}
   <p>{{ content.missing_eod_count }} team member(s) clocked in but have not submitted EOD yet.</p>
-  <a href="/manager/eod" class="btn btn-small btn-primary">View Team EOD</a>
+  <a href="/manager/eod" class="btn btn-small btn-primary">View team EOD</a>
   {% else %}
   <p class="muted">Everyone who clocked in today has submitted EOD, or no one is clocked in yet.</p>
   <a href="/manager/eod" class="btn btn-small">Team EOD</a>

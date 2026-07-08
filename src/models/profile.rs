@@ -14,6 +14,7 @@ pub struct EmployeeProfile {
     pub department: Option<String>,
     pub employment_type: Option<String>,
     pub date_hired: Option<Date>,
+    pub date_separated: Option<Date>,
     pub work_location: Option<String>,
     pub bank_account: Option<String>,
     pub tin: Option<String>,

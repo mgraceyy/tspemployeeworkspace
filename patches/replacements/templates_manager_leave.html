@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Leave Requests</h1>
+  <p class="muted">Review pending requests and revoke approved leave while the pay period is still open.</p>
+</section>
+
+<h2>Pending</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Balances</th><th>Dates</th><th>Type</th><th>Employee reason</th><th>Review</th></tr>
+    </thead>
+    <tbody>
+      {% for req in content.pending %}
+      <tr>
+        <td><strong>{{ req.full_name }}</strong><br><span class="muted">{{ req.employee_code }}</span></td>
+        <td>
+          <span class="muted">Vacation:</span> {{ req.vacation_balance }}<br>
+          <span class="muted">Sick:</span> {{ req.sick_balance }}
+        </td>
+        <td>{{ req.start_date }} — {{ req.end_date }}</td>
+        <td>{{ req.leave_type }}</td>
+        <td>{{ req.reason or "—" }}</td>
+        <td>
+          <form method="post" action="/manager/leave/{{ req.id }}/review" class="actions">
+            {% include "partials/csrf_field.html" %}
+            <input type="text" name="note" placeholder="Note" class="input-small">
+            <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
+            <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No pending leave requests.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>Recently approved</h2>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>Dates</th><th>Type</th><th>Reason</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      {% for req in content.approved %}
+      <tr>
+        <td><strong>{{ req.full_name }}</strong><br><span class="muted">{{ req.employee_code }}</span></td>
+        <td>{{ req.start_date }} — {{ req.end_date }}</td>
+        <td>{{ req.leave_type }}</td>
+        <td>{{ req.reason or "—" }}</td>
+        <td>
+          {% if req.can_revoke %}
+          <form method="post" action="/manager/leave/{{ req.id }}/revoke" class="actions">
+            {% include "partials/csrf_field.html" %}
+            <button type="submit" class="btn btn-small btn-danger"
+              onclick="return confirm('Revoke this approved leave? Balance will be restored and attendance marks removed.');">
+              Revoke
+            </button>
+          </form>
+          {% else %}
+          <span class="muted">Closed period — cannot revoke</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">No approved leave on file.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

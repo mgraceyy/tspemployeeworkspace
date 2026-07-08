@@ -1,11 +1,23 @@
 {% extends "base.html" %}
+{% block main_class %}main-narrow{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Company Settings</h1>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Company Settings</h1>
+    <p class="page-hero-lead">Timezone, pay rules, and company-wide defaults.</p>
+  </div>
+</header>
 
-<section class="panel">
-  <form method="post" action="/admin/settings" class="stack narrow">
+<div class="page-layout page-layout-single">
+  <section class="data-panel admin-settings-panel">
+    <div class="data-panel-header">
+      <div class="data-panel-title">
+        <h2>Configuration</h2>
+        <p class="data-panel-desc">Changes apply to all employees immediately after saving.</p>
+      </div>
+    </div>
+    <div class="admin-settings-body">
+  <form method="post" action="/admin/settings" class="form-grid">
     {% include "partials/csrf_field.html" %}
     <label>Company name
       <input type="text" name="company_name" value="{{ content.settings.company_name }}" required>
@@ -56,6 +68,46 @@
       <input type="checkbox" name="ot_requires_approval" value="on" {% if content.settings.ot_requires_approval %}checked{% endif %}>
       Overtime requires manager approval
     </label>
+    <h2>Government auto-deductions</h2>
+    <p class="hint">When enabled, draft payroll runs automatically compute employee-share SSS, PhilHealth, Pag-IBIG, and withholding tax from monthly basic salary. Manual amounts are never overwritten.</p>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_sss" value="on" {% if content.settings.auto_deduct_sss %}checked{% endif %}>
+      Auto-deduct SSS
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_phic" value="on" {% if content.settings.auto_deduct_phic %}checked{% endif %}>
+      Auto-deduct PhilHealth
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_hdmf" value="on" {% if content.settings.auto_deduct_hdmf %}checked{% endif %}>
+      Auto-deduct Pag-IBIG
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_wht" value="on" {% if content.settings.auto_deduct_wht %}checked{% endif %}>
+      Auto-deduct withholding tax
+    </label>
+    <h2>Labor law premiums</h2>
+    <p class="hint">When enabled, draft payroll runs add premium pay on top of base and ordinary OT: rest-day (+30% regular / +37% OT), holiday (+100% regular / +128% OT), and night differential (+10% for 22:00–06:00 work in company timezone).</p>
+    <label class="checkbox-label">
+      <input type="checkbox" name="premium_rest_day" value="on" {% if content.settings.premium_rest_day %}checked{% endif %}>
+      Rest-day premium pay
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="premium_holiday" value="on" {% if content.settings.premium_holiday %}checked{% endif %}>
+      Holiday premium pay
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="premium_night_diff" value="on" {% if content.settings.premium_night_diff %}checked{% endif %}>
+      Night differential premium pay
+    </label>
+    <h2>Leave policy defaults</h2>
+    <p class="hint">Starting balances for new employees. Existing employees keep their current balances unless edited on the employee profile.</p>
+    <label>Default vacation days
+      <input type="number" name="default_vacation_days" value="{{ content.settings.default_vacation_days }}" min="0" required>
+    </label>
+    <label>Default sick leave days
+      <input type="number" name="default_sick_days" value="{{ content.settings.default_sick_days }}" min="0" required>
+    </label>
     <h2>Payroll accounting (journal CSV)</h2>
     <p class="hint">GL account codes used in <strong>Journal CSV</strong> exports on finalized payroll runs.</p>
     <label>Salary expense account
@@ -70,7 +122,11 @@
     <label>Net pay payable label
       <input type="text" name="journal_net_payable_label" value="{{ content.settings.journal_net_payable_label }}" required>
     </label>
-    <button type="submit" class="btn btn-primary">Save Settings</button>
+    <div class="admin-form-footer">
+      <button type="submit" class="btn btn-primary">Save settings</button>
+    </div>
   </form>
-</section>
+    </div>
+  </section>
+</div>
 {% endblock %}

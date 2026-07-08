@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::UserRole;
-use crate::services::employees::find_by_id;
+use crate::services::employees::fetch_auth_snapshot;
 
 pub const SESSION_KEY: &str = "user";
 pub const FLASH_KEY: &str = "flash";
@@ -44,10 +44,10 @@ pub async fn get_active_session(session: &Session) -> AppResult<UserSession> {
     Ok(user)
 }
 
-/// Reloads the employee row and refreshes the signed session when role or PIN flags change.
+/// Reloads a lightweight auth snapshot (cached per employee) and refreshes the session when fields change.
 pub async fn sync_session_with_db(pool: &PgPool, session: &Session) -> AppResult<UserSession> {
     let cached = get_session(session).await?;
-    let Some(employee) = find_by_id(pool, cached.employee_id).await? else {
+    let Some(employee) = fetch_auth_snapshot(pool, cached.employee_id).await? else {
         clear_session(session).await?;
         return Err(AppError::Unauthorized);
     };
@@ -62,7 +62,7 @@ pub async fn sync_session_with_db(pool: &PgPool, session: &Session) -> AppResult
     }
 
     let fresh = UserSession {
-        employee_id: employee.id,
+        employee_id: cached.employee_id,
         employee_code: employee.employee_code,
         full_name: employee.full_name,
         role: employee.role,

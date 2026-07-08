@@ -1,55 +1,113 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Leave Requests</h1>
-  <p class="muted">Request sick leave, vacation, official leave, or offset time. Your manager will review before it is applied.</p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Leave Requests</h1>
+    <p class="page-hero-lead">Request sick leave, vacation, official leave, or offset time. Your manager reviews before it is applied.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.vacation_balance }} vacation</span>
+      <span class="stat-pill">{{ content.sick_balance }} sick</span>
+      {% if content.pending_count > 0 %}
+      <span class="stat-pill stat-pill-warn">{{ content.pending_count }} pending</span>
+      {% endif %}
+      {% if content.request_count > 0 %}
+      <span class="stat-pill">{{ content.request_count }} total request{% if content.request_count != 1 %}s{% endif %}</span>
+      {% endif %}
+    </div>
+  </div>
+</header>
 
-<section class="panel narrow-panel">
-  <h2>New request</h2>
-  <form method="post" action="/me/leave" class="stack">
+<section class="data-panel leave-request-panel">
+  <div class="data-panel-header">
+    <h2>New request</h2>
+  </div>
+  <form method="post" action="/me/leave" class="leave-request-form" id="leave-request-form">
     {% include "partials/csrf_field.html" %}
-    <label>Start date <input type="date" name="start_date" required></label>
-    <label>End date <input type="date" name="end_date" required></label>
-    <label>Leave type
-      <select name="leave_type" required>
-        <option value="sick_leave">Sick leave</option>
-        <option value="vacation">Vacation</option>
-        <option value="official_leave">Official leave</option>
-        <option value="offset">Offset</option>
-      </select>
+    <div class="leave-request-fields">
+      <div class="leave-date-range">
+        <label class="filter-select stack leave-date-field">
+          Start
+          <input type="date" name="start_date" id="leave-start-date" required>
+        </label>
+        <span class="leave-date-sep" aria-hidden="true">to</span>
+        <label class="filter-select stack leave-date-field">
+          End
+          <input type="date" name="end_date" id="leave-end-date" required>
+        </label>
+      </div>
+      <label class="filter-select stack">
+        Duration
+        <select name="day_portion" id="leave-day-portion" aria-label="Whole day or half day">
+          <option value="full_day">Whole day</option>
+          <option value="half_day">Half day</option>
+        </select>
+      </label>
+      <label class="filter-select stack">
+        Leave type
+        <select name="leave_type" required>
+          <option value="sick_leave">Sick leave</option>
+          <option value="vacation">Vacation</option>
+          <option value="official_leave">Official leave</option>
+          <option value="offset">Offset</option>
+        </select>
+      </label>
+    </div>
+    <p class="field-hint leave-duration-hint" id="leave-duration-hint">Half day is available when start and end are the same date.</p>
+    <label class="leave-reason-field stack">
+      Reason
+      <textarea name="reason" rows="3" required placeholder="Brief explanation for your manager"></textarea>
     </label>
-    <label>Reason (required) <input type="text" name="reason" required placeholder="Brief explanation for your manager"></label>
-    <button type="submit" class="btn btn-primary">Submit request</button>
+    <div class="leave-request-submit">
+      <button type="submit" class="btn btn-primary">Submit request</button>
+    </div>
   </form>
 </section>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Dates</th><th>Type</th><th>Reason</th><th>Status</th><th>Manager note</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for req in content.requests %}
-      <tr>
-        <td>{{ req.start_date }} — {{ req.end_date }}</td>
-        <td>{{ req.leave_type }}</td>
-        <td>{{ req.reason or "—" }}</td>
-        <td>{{ req.status }}</td>
-        <td>{{ req.reviewer_note or "—" }}</td>
-        <td>
-          {% if req.can_cancel %}
-          <form method="post" action="/me/leave/{{ req.id }}/cancel" class="inline-form">
-            {% include "partials/csrf_field.html" %}
-            <button type="submit" class="btn btn-small btn-danger">Cancel</button>
-          </form>
-          {% else %}—{% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">No leave requests yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="data-panel leave-panel">
+  <div class="data-panel-header">
+    <h2>Your requests</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table class="leave-table">
+      <thead>
+        <tr>
+          <th>Dates</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Status</th>
+          <th>Manager note</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for req in content.requests %}
+        <tr>
+          <td class="leave-dates">{{ req.dates_label }}</td>
+          <td><span class="badge badge-{{ req.leave_type_key }}">{{ req.leave_type }}</span></td>
+          <td class="leave-reason">{{ req.reason or "—" }}</td>
+          <td><span class="badge badge-{{ req.status_key }}">{{ req.status }}</span></td>
+          <td class="leave-note">{{ req.reviewer_note or "—" }}</td>
+          <td class="leave-actions">
+            {% if req.can_cancel %}
+            <form method="post" action="/me/leave/{{ req.id }}/cancel" class="inline-form">
+              {% include "partials/csrf_field.html" %}
+              <button type="submit" class="btn btn-small btn-danger">Cancel</button>
+            </form>
+            {% else %}
+            <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted leave-empty">No leave requests yet. Submit your first request above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/leave-form.js?v=20260707e"></script>
 {% endblock %}

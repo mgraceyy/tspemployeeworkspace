@@ -3,7 +3,6 @@ use time::Date;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::services::profile::ensure_profile;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AdminEmployeeRow {
@@ -181,35 +180,4 @@ pub async fn list_distinct_departments(pool: &PgPool) -> AppResult<Vec<String>> 
     Ok(rows)
 }
 
-pub async fn bulk_assign_department(
-    pool: &PgPool,
-    employee_ids: &[Uuid],
-    department: &str,
-    editor_id: Uuid,
-) -> AppResult<usize> {
-    let dept = department.trim();
-    if dept.is_empty() {
-        return Err(AppError::bad_request("Department is required"));
-    }
-    if employee_ids.is_empty() {
-        return Err(AppError::bad_request("Select at least one employee"));
-    }
 
-    for employee_id in employee_ids {
-        ensure_profile(pool, *employee_id).await?;
-    }
-
-    let updated = sqlx::query(
-        "UPDATE employee_profiles
-         SET department = $2, updated_at = now(), updated_by = $3
-         WHERE employee_id = ANY($1)",
-    )
-    .bind(employee_ids)
-    .bind(dept)
-    .bind(editor_id)
-    .execute(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
-
-    Ok(updated.rows_affected() as usize)
-}

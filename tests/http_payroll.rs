@@ -469,6 +469,7 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
             department: None,
             employment_type: None,
             date_hired: None,
+            date_separated: None,
             work_location: None,
             bank_account: Some("9876543210"),
             tin: None,

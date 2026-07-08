@@ -1,51 +1,75 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Requirement Types</h1>
-  <p class="muted">Define employment requirements for all employees.</p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Requirement Types</h1>
+    <p class="page-hero-lead">Define employment requirements assigned to all active employees.</p>
+  </div>
+</header>
 
-<section class="panel narrow-panel">
-  <h2>Add Requirement Type</h2>
-  <form method="post" action="/admin/requirements" class="stack">
+<section class="data-panel admin-form-panel">
+  <div class="data-panel-header">
+    <h2>Add requirement type</h2>
+  </div>
+  <form method="post" action="/admin/requirements" class="admin-form-grid">
     {% include "partials/csrf_field.html" %}
-    <label>Name <input type="text" name="name" required></label>
-    <label>Description <input type="text" name="description"></label>
+    <label class="stack">
+      Name
+      <input type="text" name="name" required>
+    </label>
+    <label class="stack">
+      Description
+      <input type="text" name="description">
+    </label>
+    <label class="stack">
+      Sort order
+      <input type="number" name="sort_order" value="0">
+    </label>
+    <label class="stack">
+      Expires after (days)
+      <input type="number" name="expires_after_days" min="1" placeholder="Optional">
+    </label>
     <label class="checkbox-label"><input type="checkbox" name="is_required" checked> Required for all employees</label>
     <label class="checkbox-label"><input type="checkbox" name="requires_upload"> Requires file upload</label>
-    <label>Sort order <input type="number" name="sort_order" value="0"></label>
-    <label>Expires after (days) <input type="number" name="expires_after_days" min="1" placeholder="Optional"></label>
-    <button type="submit" class="btn btn-primary">Add Type</button>
+    <div class="admin-form-span">
+      <button type="submit" class="btn btn-primary">Add type</button>
+    </div>
   </form>
 </section>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Name</th><th>Description</th><th>Required</th><th>Upload</th><th>Active</th><th>Order</th><th>Expiry (days)</th><th>Edit</th></tr>
-    </thead>
-    <tbody>
-      {% for t in content.types %}
-      <tr>
-        <td colspan="8">
-          <form method="post" action="/admin/requirements" class="stack inline-edit-row">
-            {% include "partials/csrf_field.html" %}
-            <input type="hidden" name="type_id" value="{{ t.id }}">
-            <input type="text" name="name" value="{{ t.name }}" required>
-            <input type="text" name="description" value="{{ t.description }}">
-            <label class="checkbox-label"><input type="checkbox" name="is_required" {% if t.is_required %}checked{% endif %}> Required</label>
-            <label class="checkbox-label"><input type="checkbox" name="requires_upload" {% if t.requires_upload %}checked{% endif %}> Upload</label>
-            <label class="checkbox-label"><input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %}> Active</label>
-            <input type="number" name="sort_order" value="{{ t.sort_order }}">
-            <input type="number" name="expires_after_days" min="1" value="{{ t.expires_after_days or '' }}" placeholder="—">
-            <button type="submit" class="btn btn-small btn-primary">Save</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="8" class="muted">No requirement types yet. Add one above — it will be assigned to all active employees automatically.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <h2>Configured types</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Description</th><th>Required</th><th>Upload</th><th>Active</th><th>Order</th><th>Expiry</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for t in content.types %}
+        <tr>
+          <td colspan="8">
+            <form method="post" action="/admin/requirements" class="inline-edit-row">
+              {% include "partials/csrf_field.html" %}
+              <input type="hidden" name="type_id" value="{{ t.id }}">
+              <input type="text" name="name" value="{{ t.name }}" required aria-label="Name">
+              <input type="text" name="description" value="{{ t.description }}" aria-label="Description">
+              <label class="checkbox-label"><input type="checkbox" name="is_required" {% if t.is_required %}checked{% endif %}> Required</label>
+              <label class="checkbox-label"><input type="checkbox" name="requires_upload" {% if t.requires_upload %}checked{% endif %}> Upload</label>
+              <label class="checkbox-label"><input type="checkbox" name="is_active" {% if t.is_active %}checked{% endif %}> Active</label>
+              <input type="number" name="sort_order" value="{{ t.sort_order }}" aria-label="Sort order">
+              <input type="number" name="expires_after_days" min="1" value="{{ t.expires_after_days or '' }}" placeholder="—" aria-label="Expiry days">
+              <button type="submit" class="btn btn-small btn-primary">Save</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="muted empty-cell">No requirement types yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

@@ -164,6 +164,7 @@ pub fn build_payroll_xlsx(
         "Vacation Days",
         "Official Leave Days",
         "Offset Days",
+        "LWOP Days",
         "No-Show Days",
     ];
     for (col, header) in headers.iter().enumerate() {
@@ -209,7 +210,10 @@ pub fn build_payroll_xlsx(
             .write_number(r, 10, row.offset_days as f64)
             .map_err(|e| AppError::Internal(e.into()))?;
         worksheet
-            .write_number(r, 11, row.no_show_days as f64)
+            .write_number(r, 11, row.lwop_days as f64)
+            .map_err(|e| AppError::Internal(e.into()))?;
+        worksheet
+            .write_number(r, 12, row.no_show_days as f64)
             .map_err(|e| AppError::Internal(e.into()))?;
     }
 

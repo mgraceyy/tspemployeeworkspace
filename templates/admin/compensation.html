@@ -1,50 +1,65 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Employee Compensation</h1>
-  <p class="muted">{{ content.employee_code }} · {{ content.full_name }}</p>
-  <p>
-    <a href="/admin/employees">← Employees</a>
-    · <a href="/admin/employees/{{ content.employee_id }}">Account</a>
-    · <a href="/admin/employees/{{ content.employee_id }}/profile">Profile</a>
-    · <a href="/admin/employees/{{ content.employee_id }}/requirements">Requirements</a>
-    · <a href="/admin/compensation/import">Import CSV</a>
-  </p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/admin/employees">Employees</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <a href="/admin/employees/{{ content.employee_id }}">{{ content.employee_code }}</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <span>Compensation</span>
+    </nav>
+    <h1>{{ content.full_name }}</h1>
+    <p class="page-hero-lead">Monthly salary, allowances, and OT rate for payroll.</p>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/admin/employees/{{ content.employee_id }}/profile" class="btn">Profile</a>
+    <a href="/admin/employees/{{ content.employee_id }}/requirements" class="btn">Requirements</a>
+  </div>
+</header>
 
-<section class="panel narrow-panel">
-  <h2>Monthly salary &amp; allowances</h2>
-  <p class="hint">All employees are on <strong>monthly</strong> pay. OT is calculated at the hourly equivalent × OT rate (default 132%). No-shows reduce gross pay by one daily rate per day. Transport and meal allowances are prorated per pay period.</p>
-  <p class="muted">Daily rate = monthly salary ÷ {{ content.working_days }} working days.</p>
-
-  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation" class="stack">
+<section class="data-panel admin-form-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Monthly salary &amp; allowances</h2>
+      <p class="data-panel-desc">Daily rate = monthly salary ÷ {{ content.working_days }} working days. OT uses hourly equivalent × OT rate.</p>
+    </div>
+  </div>
+  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation" class="admin-form-grid">
     {% include "partials/csrf_field.html" %}
-    <label>Monthly salary (PHP)
-      <input type="text" name="monthly_salary" value="{{ content.monthly_salary }}" required
-        inputmode="decimal" placeholder="e.g. 26000.00">
+    <label class="stack">
+      Monthly salary (PHP)
+      <input type="text" name="monthly_salary" value="{{ content.monthly_salary }}" required inputmode="decimal" placeholder="e.g. 26000.00">
     </label>
-    <label>Transport allowance (PHP / month)
-      <input type="text" name="transport_allowance" value="{{ content.transport_allowance }}"
-        inputmode="decimal" placeholder="0.00">
+    <label class="stack">
+      Transport allowance (PHP / month)
+      <input type="text" name="transport_allowance" value="{{ content.transport_allowance }}" inputmode="decimal" placeholder="0.00">
     </label>
-    <label>Meal allowance (PHP / month)
-      <input type="text" name="meal_allowance" value="{{ content.meal_allowance }}"
-        inputmode="decimal" placeholder="0.00">
+    <label class="stack">
+      Meal allowance (PHP / month)
+      <input type="text" name="meal_allowance" value="{{ content.meal_allowance }}" inputmode="decimal" placeholder="0.00">
     </label>
-    <label>OT rate (%)
+    <label class="stack">
+      OT rate (%)
       <input type="number" name="ot_rate_percent" value="{{ content.ot_rate_percent }}" min="100" max="300" step="1">
-      <span class="hint">132 = 132% of hourly rate for approved overtime minutes.</span>
+      <span class="field-hint">132 = 132% of hourly rate for approved OT.</span>
     </label>
-    <label>Effective from
+    <label class="stack">
+      Effective from
       <input type="date" name="effective_from" value="{{ content.effective_from }}" required>
     </label>
-    <button type="submit" class="btn btn-primary">Save compensation</button>
+    <div class="admin-form-span">
+      <button type="submit" class="btn btn-primary">Save compensation</button>
+    </div>
   </form>
 </section>
 
 {% if content.history %}
-<section class="panel">
-  <h2>Compensation history</h2>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <h2>Compensation history</h2>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -75,18 +90,24 @@
 {% endif %}
 
 {% if content.deduction_defaults %}
-<section class="panel narrow-panel">
-  <h2>Default payroll deductions</h2>
-  <p class="hint">Applied automatically when a new draft payroll run is created for this employee.</p>
-  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation/deduction-defaults" class="stack">
+<section class="data-panel admin-form-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Default payroll deductions</h2>
+      <p class="data-panel-desc">Applied automatically when a new draft payroll run is created for this employee.</p>
+    </div>
+  </div>
+  <form method="post" action="/admin/employees/{{ content.employee_id }}/compensation/deduction-defaults" class="admin-form-grid">
     {% include "partials/csrf_field.html" %}
     {% for dtype in content.deduction_defaults %}
-    <label>{{ dtype.name }} ({{ dtype.code }})
-      <input type="text" name="default_{{ dtype.code_lower }}" value="{{ dtype.amount }}"
-        inputmode="decimal" placeholder="Leave blank for none">
+    <label class="stack">
+      {{ dtype.name }} ({{ dtype.code }})
+      <input type="text" name="default_{{ dtype.code_lower }}" value="{{ dtype.amount }}" inputmode="decimal" placeholder="Leave blank for none">
     </label>
     {% endfor %}
-    <button type="submit" class="btn btn-secondary">Save defaults</button>
+    <div class="admin-form-span">
+      <button type="submit" class="btn btn-secondary">Save defaults</button>
+    </div>
   </form>
 </section>
 {% endif %}

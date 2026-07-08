@@ -1,20 +1,36 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>End-of-Day Update</h1>
-  <p class="muted">Today: {{ content.today }} · Status: {{ content.status }}</p>
-  {% if content.submitted %}<p class="muted">Submitted at {{ content.submitted }}</p>{% endif %}
-  <p><a href="/me/eod/history">View EOD history</a></p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>End-of-Day</h1>
+    <p class="page-hero-lead">Log today's update and browse your past submitted reports below.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.today }}</span>
+      <span class="stat-pill{% if content.status == 'Draft' %} stat-pill-warn{% endif %}">{{ content.status }}</span>
+      {% if content.submitted %}
+      <span class="stat-pill">Submitted {{ content.submitted }}</span>
+      {% endif %}
+    </div>
+  </div>
+</header>
 
 {% if content.is_submitted %}
 <div class="alert alert-success">Your EOD has been submitted and can no longer be edited.</div>
-<section class="panel">
-  {% if content.summary %}<p>{{ content.summary }}</p>{% endif %}
+<section class="data-panel eod-read-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Today's report</h2>
+      <p class="data-panel-desc">Submitted end-of-day summary and tasks.</p>
+    </div>
+  </div>
+  {% if content.summary %}
+  <p class="eod-summary-text">{{ content.summary }}</p>
+  {% endif %}
   {% if content.tasks %}
   <ul class="eod-task-list">
     {% for task in content.tasks %}
-    <li><span class="badge">{{ task.kind }}</span> {{ task.title }}</li>
+    <li><span class="badge badge-{{ task.kind | lower }}">{{ task.kind }}</span> {{ task.title }}</li>
     {% endfor %}
   </ul>
   {% else %}
@@ -25,37 +41,73 @@
 <div class="alert alert-info">EOD is available after you clock in for the day.</div>
 {% else %}
 <div class="alert alert-warning">Once you submit your EOD, you will not be able to edit it again today.</div>
-<form method="post" action="/me/eod" class="stack">
+<form method="post" action="/me/eod" class="eod-form">
   {% include "partials/csrf_field.html" %}
-  <section class="panel">
-    <h2>Completed Today</h2>
-    <label>One task per line
-      <textarea name="completed" rows="5">{{ content.completed }}</textarea>
+  <section class="data-panel eod-form-panel">
+    <div class="data-panel-header">
+      <div class="data-panel-title">
+        <h2>Today's update</h2>
+        <p class="data-panel-desc">One task per line in each section. Save a draft anytime or submit when ready.</p>
+      </div>
+    </div>
+    <div class="eod-form-grid">
+      <label class="eod-field stack">
+        <span class="eod-field-label">Completed today</span>
+        <textarea name="completed" rows="5" placeholder="What did you finish today?">{{ content.completed }}</textarea>
+      </label>
+      <label class="eod-field stack">
+        <span class="eod-field-label">Pending / carry-over</span>
+        <textarea name="pending" rows="5" placeholder="Work still in progress">{{ content.pending }}</textarea>
+      </label>
+      <label class="eod-field stack">
+        <span class="eod-field-label">Blocked</span>
+        <textarea name="blocked" rows="4" placeholder="Anything blocking progress">{{ content.blocked }}</textarea>
+      </label>
+      <label class="eod-field stack">
+        <span class="eod-field-label">Planned for tomorrow</span>
+        <textarea name="planned" rows="4" placeholder="What you plan to tackle next">{{ content.planned }}</textarea>
+      </label>
+    </div>
+    <label class="eod-field eod-summary-field stack">
+      <span class="eod-field-label">Summary</span>
+      <textarea name="summary" rows="3" placeholder="Optional overall note for your manager">{{ content.summary }}</textarea>
     </label>
+    <div class="eod-submit-bar">
+      <button type="submit" name="action" value="draft" class="btn">Save draft</button>
+      <button type="submit" name="action" value="submit" class="btn btn-primary"
+        onclick="return confirm('Once submitted, your EOD cannot be edited. Continue?');">
+        Submit EOD
+      </button>
+    </div>
   </section>
-  <section class="panel">
-    <h2>Pending / Carry-over</h2>
-    <textarea name="pending" rows="4">{{ content.pending }}</textarea>
-  </section>
-  <section class="panel">
-    <h2>Blocked</h2>
-    <textarea name="blocked" rows="3">{{ content.blocked }}</textarea>
-  </section>
-  <section class="panel">
-    <h2>Planned for Tomorrow</h2>
-    <textarea name="planned" rows="3">{{ content.planned }}</textarea>
-  </section>
-  <section class="panel">
-    <h2>Summary</h2>
-    <textarea name="summary" rows="3" placeholder="Optional overall note">{{ content.summary }}</textarea>
-  </section>
-  <div class="form-actions">
-    <button type="submit" name="action" value="draft" class="btn">Save Draft</button>
-    <button type="submit" name="action" value="submit" class="btn btn-primary"
-      onclick="return confirm('Once submitted, your EOD cannot be edited. Continue?');">
-      Submit EOD
-    </button>
-  </div>
 </form>
 {% endif %}
+
+<section class="data-panel eod-history-panel" id="eod-history">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Past reports</h2>
+      <p class="data-panel-desc">Your submitted end-of-day reports.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="eod-history-table">
+      <thead>
+        <tr><th>Date</th><th>Summary</th><th>Submitted</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for report in content.history %}
+        <tr>
+          <td class="eod-history-date">{{ report.report_date }}</td>
+          <td>{{ report.summary or "—" }}</td>
+          <td class="eod-history-submitted">{{ report.submitted_at or "—" }}</td>
+          <td><a href="/me/eod/{{ report.id }}" class="btn btn-small btn-primary">View</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted empty-cell">No submitted EOD reports yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

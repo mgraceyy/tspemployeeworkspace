@@ -194,7 +194,7 @@ async fn render_correction_page(
         session,
         Some(user),
         company_name,
-        "Correct Time Entry",
+        "Edit Time Entry",
         "manager/correct.html",
         context! {
             form => form,

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::{redirect_with_flash, redirect_with_flash_from_result};
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::models::PayrollRunStatus;
 use crate::services::{
@@ -28,7 +28,7 @@ use crate::services::{
         build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv,
         count_missing_bank_accounts_for_run, get_line_for_run, is_draft_attendance_stale,
         list_deduction_types, list_deductions_for_line, parse_optional_amount_to_cents,
-        save_line_deductions, DeductionInput,
+        preflight_finalize_run, save_line_deductions, DeductionInput, FinalizePreflight, AUTO_NOTE,
     },
     reports::period_label_for_range,
     settings::get_settings,
@@ -139,41 +139,52 @@ pub async fn create_payroll_run_action(
     Form(form): Form<CreatePayrollRunForm>,
 ) -> AppResult<Redirect> {
     let settings = get_settings(&state.pool).await?;
-    let start =
-        crate::services::timezone::parse_date(&form.period_start).map_err(AppError::bad_request)?;
-    let end =
-        crate::services::timezone::parse_date(&form.period_end).map_err(AppError::bad_request)?;
+    let result: AppResult<Uuid> = async {
+        let start = crate::services::timezone::parse_date(&form.period_start)
+            .map_err(AppError::bad_request)?;
+        let end =
+            crate::services::timezone::parse_date(&form.period_end).map_err(AppError::bad_request)?;
 
-    let run_id = create_draft_run(
-        &state.pool,
-        start,
-        end,
-        user.employee_id,
-        &settings,
-        form.note.as_deref(),
-    )
-    .await?;
-    state.metrics.record_payroll_run_created();
+        let run_id = create_draft_run(
+            &state.pool,
+            start,
+            end,
+            user.employee_id,
+            &settings,
+            form.note.as_deref(),
+        )
+        .await?;
+        state.metrics.record_payroll_run_created();
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "payroll.run_created",
-        &format!(
-            "Created draft payroll run for {} to {}",
-            format_date(start),
-            format_date(end)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "payroll.run_created",
+            &format!(
+                "Created draft payroll run for {} to {}",
+                format_date(start),
+                format_date(end)
+            ),
+        )
+        .await?;
+        Ok(run_id)
+    }
+    .await;
 
-    redirect_with_flash(
-        &session,
-        &format!("/admin/payroll/{run_id}"),
-        "success",
-        "Draft payroll run created",
-    )
-    .await
+    match result {
+        Ok(run_id) => {
+            redirect_with_flash(
+                &session,
+                &format!("/admin/payroll/{run_id}"),
+                "success",
+                "Draft payroll run created",
+            )
+            .await
+        }
+        Err(err) => {
+            redirect_with_flash_from_result(&session, "/admin/payroll", "", Err(err)).await
+        }
+    }
 }
 
 pub async fn payroll_run_page(
@@ -200,6 +211,13 @@ pub async fn payroll_run_page(
         0
     };
 
+    let gov_toggles = settings.government_deduction_toggles();
+    let preflight = if run.status == PayrollRunStatus::Draft {
+        preflight_finalize_run(&state.pool, run_id, &settings).await?
+    } else {
+        FinalizePreflight::default()
+    };
+
     let line_rows: Vec<_> = lines
         .iter()
         .map(|l| {
@@ -210,6 +228,13 @@ pub async fn payroll_run_page(
                 department => l.department.clone().unwrap_or_default(),
                 is_inactive => !l.employee_is_active,
                 no_show_days => l.no_show_days,
+                lwop_days => l.lwop_days,
+                has_lwop => l.lwop_days > 0,
+                is_prorated => l.employed_days.is_some()
+                    && l.period_calendar_days.is_some()
+                    && l.employed_days.unwrap_or(0) < l.period_calendar_days.unwrap_or(0),
+                employed_days => l.employed_days.unwrap_or(0),
+                period_calendar_days => l.period_calendar_days.unwrap_or(0),
                 approved_ot_minutes => l.approved_ot_minutes,
                 pending_ot_minutes => l.pending_ot_minutes,
                 base_pay => format_salary_cents(l.base_pay_cents),
@@ -249,13 +274,25 @@ pub async fn payroll_run_page(
             total_net => format_salary_cents(total_net),
             has_pending_ot => pending_ot > 0,
             pending_ot_minutes => pending_ot,
-            can_finalize => pending_ot == 0,
+            can_finalize => pending_ot == 0 && preflight.over_gross_count == 0 && !attendance_stale,
             has_inactive_employees => inactive_count > 0,
             inactive_employee_count => inactive_count,
             is_finalized => run.status == PayrollRunStatus::Finalized,
             attendance_stale => attendance_stale,
             has_missing_bank_accounts => missing_bank_account_count > 0,
             missing_bank_account_count => missing_bank_account_count,
+            gov_auto_enabled => gov_toggles.any_enabled(),
+            preflight_stale_gov => preflight.stale_government_count,
+            preflight_missing_gov => preflight.missing_government_count,
+            preflight_stale_lwop => preflight.stale_lwop_count,
+            preflight_missing_lwop => preflight.missing_lwop_count,
+            preflight_over_gross => preflight.over_gross_count,
+            preflight_disabled_auto => preflight.disabled_auto_remaining_count,
+            has_gov_preflight_warnings => preflight.stale_government_count > 0
+                || preflight.missing_government_count > 0
+                || preflight.disabled_auto_remaining_count > 0,
+            has_lwop_preflight_warnings => preflight.has_lwop_warnings(),
+            has_auto_deduction_preflight_warnings => preflight.has_warnings(),
         },
     )
     .await
@@ -373,12 +410,16 @@ pub async fn payroll_line_deductions_page(
             } else {
                 (String::new(), String::new())
             };
+            let is_auto = saved
+                .map(|d| d.note.as_deref() == Some(AUTO_NOTE))
+                .unwrap_or(false);
             context! {
                 code => t.code.clone(),
                 code_lower => t.code.to_lowercase(),
                 name => t.name.clone(),
                 amount => amount,
                 note => note,
+                is_auto => is_auto,
             }
         })
         .collect();
@@ -419,34 +460,36 @@ pub async fn save_payroll_line_deductions_action(
     Path((run_id, line_id)): Path<(Uuid, Uuid)>,
     Form(form): Form<HashMap<String, String>>,
 ) -> AppResult<Redirect> {
-    let types = list_deduction_types(&state.pool).await?;
-    let inputs = build_deduction_inputs_from_form(&types, &form)?;
-    save_line_deductions(&state.pool, run_id, line_id, &inputs).await?;
+    let run_url = format!("/admin/payroll/{run_id}");
+    let result: AppResult<String> = async {
+        let types = list_deduction_types(&state.pool).await?;
+        let inputs = build_deduction_inputs_from_form(&types, &form)?;
+        save_line_deductions(&state.pool, run_id, line_id, &inputs).await?;
 
-    let line = get_line_for_run(&state.pool, run_id, line_id).await?;
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "payroll.deductions_saved",
-        &format!(
-            "Updated payroll deductions for {} — net PHP {}",
-            line.employee_code,
-            format_salary_cents(line.net_pay_cents)
-        ),
-    )
-    .await?;
-
-    redirect_with_flash(
-        &session,
-        &format!("/admin/payroll/{run_id}"),
-        "success",
-        &format!(
+        let line = get_line_for_run(&state.pool, run_id, line_id).await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "payroll.deductions_saved",
+            &format!(
+                "Updated payroll deductions for {} — net PHP {}",
+                line.employee_code,
+                format_salary_cents(line.net_pay_cents)
+            ),
+        )
+        .await?;
+        Ok(format!(
             "Deductions saved for {} — net pay PHP {}",
             line.employee_code,
             format_salary_cents(line.net_pay_cents)
-        ),
-    )
-    .await
+        ))
+    }
+    .await;
+
+    match result {
+        Ok(message) => redirect_with_flash(&session, &run_url, "success", &message).await,
+        Err(err) => redirect_with_flash_from_result(&session, &run_url, "", Err(err)).await,
+    }
 }
 
 pub async fn void_payroll_run_action(
@@ -455,27 +498,31 @@ pub async fn void_payroll_run_action(
     AuthUser(user): AuthUser,
     Path(run_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    let run = get_run(&state.pool, run_id).await?;
-    void_draft_run(&state.pool, run_id).await?;
-    state.metrics.record_payroll_run_voided();
+    let result: AppResult<()> = async {
+        let run = get_run(&state.pool, run_id).await?;
+        void_draft_run(&state.pool, run_id).await?;
+        state.metrics.record_payroll_run_voided();
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "payroll.run_voided",
-        &format!(
-            "Voided draft payroll run for {} to {}",
-            format_date(run.period_start),
-            format_date(run.period_end)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "payroll.run_voided",
+            &format!(
+                "Voided draft payroll run for {} to {}",
+                format_date(run.period_start),
+                format_date(run.period_end)
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
+    redirect_with_flash_from_result(
         &session,
         "/admin/payroll",
-        "success",
         "Draft payroll run voided — you can create a new run for this period",
+        result,
     )
     .await
 }
@@ -486,27 +533,32 @@ pub async fn finalize_payroll_run_action(
     AuthUser(user): AuthUser,
     Path(run_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    let run = get_run(&state.pool, run_id).await?;
-    finalize_run(&state.pool, run_id, user.employee_id).await?;
-    state.metrics.record_payroll_run_finalized();
+    let run_url = format!("/admin/payroll/{run_id}");
+    let result: AppResult<()> = async {
+        let run = get_run(&state.pool, run_id).await?;
+        finalize_run(&state.pool, run_id, user.employee_id).await?;
+        state.metrics.record_payroll_run_finalized();
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "payroll.run_finalized",
-        &format!(
-            "Finalized payroll run for {} to {}",
-            format_date(run.period_start),
-            format_date(run.period_end)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "payroll.run_finalized",
+            &format!(
+                "Finalized payroll run for {} to {}",
+                format_date(run.period_start),
+                format_date(run.period_end)
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
+    redirect_with_flash_from_result(
         &session,
-        &format!("/admin/payroll/{run_id}"),
-        "success",
+        &run_url,
         "Payroll run finalized — gross pay and deductions are locked for this period",
+        result,
     )
     .await
 }

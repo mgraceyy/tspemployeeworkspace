@@ -47,17 +47,26 @@ pub fn combine_date_time(date: Date, time: Time, tz_name: &str) -> AppResult<Off
     }
 }
 
+fn hour12_parts(hour24: u8) -> (u8, &'static str) {
+    match hour24 {
+        0 => (12, "AM"),
+        1..=11 => (hour24, "AM"),
+        12 => (12, "PM"),
+        _ => (hour24 - 12, "PM"),
+    }
+}
+
+pub fn format_time_of_day(time: Time) -> String {
+    let (hour12, period) = hour12_parts(time.hour());
+    format!("{:02}:{:02} {}", hour12, time.minute(), period)
+}
+
 pub fn format_time(dt: OffsetDateTime, tz_name: &str) -> String {
     let tz = resolve_timezone(tz_name).unwrap_or_else(|_| {
         resolve_timezone(DEFAULT_TIMEZONE).expect("default timezone must exist")
     });
     let local = dt.to_timezone(tz);
-    format!(
-        "{:02}:{:02} {}",
-        local.hour(),
-        local.minute(),
-        if local.hour() < 12 { "AM" } else { "PM" }
-    )
+    format_time_of_day(local.time())
 }
 
 pub fn format_date(date: Date) -> String {
@@ -125,6 +134,30 @@ mod tests {
         assert!(resolve_timezone("Asia/Manila").is_ok());
         assert!(resolve_timezone("America/New_York").is_ok());
         assert!(resolve_timezone("Invalid/Zone").is_err());
+    }
+
+    #[test]
+    fn format_time_uses_twelve_hour_clock() {
+        let date = Date::from_calendar_date(2024, Month::January, 15).unwrap();
+        assert_eq!(
+            format_time_of_day(Time::from_hms(0, 30, 0).unwrap()),
+            "12:30 AM"
+        );
+        assert_eq!(
+            format_time_of_day(Time::from_hms(9, 5, 0).unwrap()),
+            "09:05 AM"
+        );
+        assert_eq!(
+            format_time_of_day(Time::from_hms(12, 0, 0).unwrap()),
+            "12:00 PM"
+        );
+        assert_eq!(
+            format_time_of_day(Time::from_hms(17, 45, 0).unwrap()),
+            "05:45 PM"
+        );
+        let morning = combine_date_time(date, Time::from_hms(9, 15, 0).unwrap(), "Asia/Manila")
+            .unwrap();
+        assert!(format_time(morning, "Asia/Manila").ends_with("AM"));
     }
 
     #[test]

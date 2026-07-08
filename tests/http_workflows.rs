@@ -183,6 +183,106 @@ async fn manager_can_approve_leave_via_http() {
 }
 
 #[tokio::test]
+async fn manager_can_revoke_approved_leave_via_http() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let mgr_code = unique_code("LVRC");
+    let emp_code = unique_code("LVRE");
+    let manager = create_ready_employee(
+        &pool,
+        &mgr_code,
+        "Leave Revoke Manager",
+        TEST_PIN,
+        UserRole::Manager,
+        None,
+    )
+    .await
+    .expect("create manager");
+    let employee = create_ready_employee(
+        &pool,
+        &emp_code,
+        "Leave Revoke Employee",
+        TEST_PIN,
+        UserRole::Employee,
+        Some(manager.id),
+    )
+    .await
+    .expect("create employee");
+
+    dtr::services::leave_balances::set_balance(
+        &pool,
+        employee.id,
+        dtr::models::LeaveRequestType::Vacation,
+        5.0,
+    )
+    .await
+    .expect("set balance");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let today = company_date_now(&settings).expect("today");
+    let start = format_date(today);
+    let end = format_date(today);
+
+    let mut app = test_app(pool.clone()).await;
+    let emp_cookies = login_as(&mut app, &emp_code, TEST_PIN).await;
+    let (_, leave_html, emp_cookies) = get(&mut app, "/me/leave", &emp_cookies).await;
+    let csrf = extract_csrf_token(&leave_html).expect("csrf");
+    let body = format!(
+        "start_date={start}&end_date={end}&day_portion=full_day&leave_type=vacation&reason=Trip&csrf_token={csrf}"
+    );
+    let (status, _, _) = post_form(&mut app, "/me/leave", &emp_cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let request_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM leave_requests WHERE employee_id = $1 ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(employee.id)
+    .fetch_one(&pool)
+    .await
+    .expect("leave request");
+
+    let mgr_cookies = login_as(&mut app, &mgr_code, TEST_PIN).await;
+    let (_, manager_leave_html, mgr_cookies) = get(&mut app, "/manager/leave", &mgr_cookies).await;
+    let csrf = extract_csrf_token(&manager_leave_html).expect("csrf");
+    let review_path = format!("/manager/leave/{request_id}/review");
+    let body = format!("action=approve&note=Enjoy&csrf_token={csrf}");
+    let (status, _, mgr_cookies) = post_form(&mut app, &review_path, &mgr_cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, approved_html, mgr_cookies) = get(&mut app, "/manager/leave", &mgr_cookies).await;
+    assert!(approved_html.contains("Recently approved"));
+    let csrf = extract_csrf_token(&approved_html).expect("csrf");
+    let revoke_path = format!("/manager/leave/{request_id}/revoke");
+    let body = format!("csrf_token={csrf}");
+    let (status, _, _) = post_form(&mut app, &revoke_path, &mgr_cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let status: LeaveRequestStatus =
+        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("leave status");
+    assert_eq!(status, LeaveRequestStatus::Cancelled);
+
+    let balance: i32 = sqlx::query_scalar(
+        "SELECT balance_days FROM employee_leave_balances
+         WHERE employee_id = $1 AND leave_type = 'vacation'",
+    )
+    .bind(employee.id)
+    .fetch_one(&pool)
+    .await
+    .expect("balance");
+    assert_eq!(balance, 50);
+
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &mgr_code).await;
+}
+
+#[tokio::test]
 async fn admin_can_close_and_reopen_pay_period_via_http() {
     let Some(pool) = test_pool().await else {
         eprintln!("skipping http test: DATABASE_URL not available");

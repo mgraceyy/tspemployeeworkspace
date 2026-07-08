@@ -1,36 +1,58 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Shift Schedules</h1>
-  {% if content.selected %}
-  <p class="muted">Assigning shifts for {{ content.selected.full_name }}</p>
-  {% endif %}
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Shift Schedules</h1>
+    <p class="page-hero-lead">Assign weekly start and end times per employee.</p>
+    {% if content.selected %}
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.selected.full_name }}</span>
+      <span class="stat-pill">{{ content.selected.employee_code }}</span>
+    </div>
+    {% endif %}
+  </div>
+</header>
 
-<div class="grid-2">
-  <section class="panel">
-    <h2>Select Employee</h2>
-    <ul class="employee-list">
+<div class="page-layout page-layout-split admin-shifts-layout">
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <h2>Select employee</h2>
+    </div>
+    <ul class="admin-employee-picker">
       {% for emp in content.employees %}
-      <li><a href="/admin/shifts/{{ emp.id }}" {% if content.selected and content.selected.id == emp.id %}class="active"{% endif %}>{{ emp.full_name }} ({{ emp.employee_code }})</a></li>
+      <li>
+        <a href="/admin/shifts/{{ emp.id }}" class="admin-employee-picker-link{% if content.selected and content.selected.id == emp.id %} is-active{% endif %}">
+          <span class="admin-employee-picker-name">{{ emp.full_name }}</span>
+          <span class="muted">{{ emp.employee_code }}</span>
+        </a>
+      </li>
       {% endfor %}
     </ul>
   </section>
 
   {% if content.selected %}
-  <section class="panel">
-    <h2>Weekly Schedule</h2>
-    {% for day in content.day_rows %}
-    <form method="post" action="/admin/shifts" class="shift-row">
-      {% include "partials/csrf_field.html" %}
-      <input type="hidden" name="employee_id" value="{{ content.selected.id }}">
-      <input type="hidden" name="day_of_week" value="{{ day.day }}">
-      <span class="day-label">{{ day.name }}</span>
-      <input type="time" name="start_time" value="{{ day.start_time }}" required>
-      <input type="time" name="end_time" value="{{ day.end_time }}" required>
-      <button type="submit" class="btn btn-small btn-primary">Save</button>
-    </form>
-    {% endfor %}
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <h2>Weekly schedule</h2>
+    </div>
+    <div class="admin-shift-rows">
+      {% for day in content.day_rows %}
+      <form method="post" action="/admin/shifts" class="shift-row">
+        {% include "partials/csrf_field.html" %}
+        <input type="hidden" name="employee_id" value="{{ content.selected.id }}">
+        <input type="hidden" name="day_of_week" value="{{ day.day }}">
+        <span class="day-label">{{ day.name }}</span>
+        <input type="time" name="start_time" value="{{ day.start_time }}" required aria-label="{{ day.name }} start">
+        <input type="time" name="end_time" value="{{ day.end_time }}" required aria-label="{{ day.name }} end">
+        <button type="submit" class="btn btn-small btn-primary">Save</button>
+      </form>
+      {% endfor %}
+    </div>
+  </section>
+  {% else %}
+  <section class="data-panel">
+    <p class="muted">Select an employee to edit their weekly schedule.</p>
   </section>
   {% endif %}
 </div>

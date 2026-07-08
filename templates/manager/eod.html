@@ -1,32 +1,45 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Team EOD Status</h1>
-  <p class="muted">Today: {{ content.today }}</p>
-  <p><a href="/manager/eod/export.csv" class="btn btn-small">Download weekly CSV</a></p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Team EOD Status</h1>
+    <p class="page-hero-lead">Track who has clocked in and submitted their end-of-day report today.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.today }}</span>
+    </div>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/manager/eod/export.csv" class="btn">Download weekly CSV</a>
+  </div>
+</header>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Employee</th><th>Clocked In</th><th>EOD</th><th>View</th></tr>
-    </thead>
-    <tbody>
-      {% for member in content.team %}
-      <tr>
-        <td>{{ member.full_name }} ({{ member.employee_code }})</td>
-        <td>{% if member.clocked_in %}Yes{% else %}No{% endif %}</td>
-        <td>{{ member.eod_status }}</td>
-        <td>
-          {% if member.eod_status != "—" %}
-          <a href="/manager/eod/{{ member.employee_id }}" class="btn btn-small btn-primary">View</a>
-          {% else %}—{% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="4" class="muted">No team members.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="data-panel eod-team-panel">
+  <div class="data-panel-header">
+    <h2>Team members</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="eod-history-table">
+      <thead>
+        <tr><th>Employee</th><th>Clocked in</th><th>EOD</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for member in content.team %}
+        <tr>
+          <td>{{ member.full_name }} ({{ member.employee_code }})</td>
+          <td>{% if member.clocked_in %}Yes{% else %}<span class="muted">No</span>{% endif %}</td>
+          <td>{{ member.eod_status }}</td>
+          <td>
+            {% if member.eod_status != "—" %}
+            <a href="/manager/eod/{{ member.employee_id }}" class="btn btn-small btn-primary">View</a>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted empty-cell">No team members.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

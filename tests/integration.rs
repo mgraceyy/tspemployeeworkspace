@@ -18,25 +18,30 @@ use dtr::services::corrections::{
 };
 use dtr::services::employees::{create_employee, find_by_id, set_employee_active};
 use dtr::services::eod::{
-    list_department_eod, list_employee_eod_history, needs_eod_reminder, save_report, unlock_report,
-    EodTaskInput,
+    list_employee_eod_history, list_team_eod_submissions, needs_eod_reminder, save_report,
+    unlock_report, EodTaskInput,
 };
 use dtr::services::holidays::{add_holiday, is_holiday};
 use dtr::services::hours::calculate;
 use dtr::services::notifications::list_for_user;
 use dtr::services::onboarding::{
-    bulk_assign_department, list_admin_employee_rows, profile_completeness_pct, AdminEmployeeQuery,
+    list_admin_employee_rows, profile_completeness_pct, AdminEmployeeQuery,
 };
 use dtr::services::ot::review_overtime;
 use dtr::services::payroll::base_pay_cents_for_period;
-use dtr::services::payroll::{gross_pay_cents, GrossPayInput};
+use dtr::services::payroll::{
+    employed_days_in_period, gross_pay_cents, prorated_period_amount_cents, EmploymentSpan,
+    GrossPayInput,
+};
 use dtr::services::profile::{get_profile, update_admin, update_self_service, AdminProfileInput};
 use dtr::services::reports::{payroll_summary, PayrollFilters};
 use dtr::services::requirements::{
     can_submit_requirement, create_type, is_requirement_expired, list_for_employee,
     review_requirement, submit_requirement,
 };
-use dtr::services::settings::{get_settings, update_settings, SettingsUpdate};
+use dtr::services::settings::{
+    get_settings, settings_update_from, update_settings, SettingsUpdate,
+};
 
 use dtr::models::EodTaskKind;
 use dtr::models::LeaveRequestType;
@@ -46,8 +51,8 @@ use dtr::services::payroll::{
     build_bank_upload_csv, build_finalized_run_csv, build_journal_export_csv, build_payslip_pdf,
     count_missing_bank_accounts_for_run, create_draft_run, finalize_run, get_line_for_run,
     get_payslip_for_employee, get_run, is_draft_attendance_stale, list_deduction_types,
-    list_lines_for_run, list_payslips_for_employee, save_line_deductions, void_draft_run,
-    DeductionInput,
+    list_deductions_for_line, list_lines_for_run, list_payslips_for_employee, save_line_deductions,
+    void_draft_run, DeductionInput, AUTO_NOTE, LWOP_CODE,
 };
 use dtr::services::payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult};
 use dtr::services::reports::current_pay_period;
@@ -391,21 +396,32 @@ async fn employee_profile_self_service_updates_contact_fields() {
 }
 
 #[tokio::test]
-async fn eod_required_after_clock_in_and_visible_by_department() {
+async fn eod_required_after_clock_in_and_visible_to_teammates() {
     let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
 
+    let code_mgr = unique_code("EODM");
     let code_a = unique_code("EOD");
     let code_b = unique_code("EOD");
+    let manager = create_employee(
+        &pool,
+        &code_mgr,
+        "EOD Manager",
+        "482915",
+        UserRole::Manager,
+        None,
+    )
+    .await
+    .expect("create manager");
     let a = create_employee(
         &pool,
         &code_a,
         "EOD Alice",
         "482915",
         UserRole::Employee,
-        None,
+        Some(manager.id),
     )
     .await
     .expect("create a");
@@ -415,59 +431,10 @@ async fn eod_required_after_clock_in_and_visible_by_department() {
         "EOD Bob",
         "482915",
         UserRole::Employee,
-        None,
+        Some(manager.id),
     )
     .await
     .expect("create b");
-
-    update_admin(
-        &pool,
-        a.id,
-        a.id,
-        AdminProfileInput {
-            contact_number: None,
-            personal_email: None,
-            birthdate: None,
-            address: None,
-            emergency_contact_name: None,
-            emergency_contact_phone: None,
-            job_title: Some("Engineer"),
-            department: Some("Engineering"),
-            employment_type: None,
-            date_hired: None,
-            work_location: None,
-            bank_account: None,
-            tin: None,
-            sss_number: None,
-            philhealth_number: None,
-        },
-    )
-    .await
-    .expect("profile a");
-    update_admin(
-        &pool,
-        b.id,
-        b.id,
-        AdminProfileInput {
-            contact_number: None,
-            personal_email: None,
-            birthdate: None,
-            address: None,
-            emergency_contact_name: None,
-            emergency_contact_phone: None,
-            job_title: Some("Engineer"),
-            department: Some("Engineering"),
-            employment_type: None,
-            date_hired: None,
-            work_location: None,
-            bank_account: None,
-            tin: None,
-            sss_number: None,
-            philhealth_number: None,
-        },
-    )
-    .await
-    .expect("profile b");
 
     assert!(!needs_eod_reminder(&pool, a.id).await.expect("reminder"));
 
@@ -506,13 +473,14 @@ async fn eod_required_after_clock_in_and_visible_by_department() {
     .await;
     assert!(locked.is_err());
 
-    let visible = list_department_eod(&pool, b.id, "Engineering", today)
+    let visible = list_team_eod_submissions(&pool, b.id, false, false, today)
         .await
-        .expect("dept eod");
+        .expect("team eod");
     assert!(visible.iter().any(|r| r.employee_code == code_a));
 
     cleanup_employee(&pool, &code_a).await;
     cleanup_employee(&pool, &code_b).await;
+    cleanup_employee(&pool, &code_mgr).await;
 }
 
 #[tokio::test]
@@ -761,38 +729,29 @@ async fn requirement_expiry_allows_resubmit() {
 }
 
 #[tokio::test]
-async fn bulk_department_assign_updates_profiles() {
+async fn set_department_on_create_updates_profile() {
     let Some(pool) = common::test_pool().await else {
         eprintln!("skipping integration test: DATABASE_URL not available");
         return;
     };
 
-    let code_a = unique_code("DEPT");
-    let code_b = unique_code("DEPT");
-    let a = create_employee(&pool, &code_a, "Dept A", "482915", UserRole::Employee, None)
+    let code = unique_code("DEPT");
+    let employee = create_employee(&pool, &code, "Dept Test", "482915", UserRole::Employee, None)
         .await
-        .expect("create a");
-    let b = create_employee(&pool, &code_b, "Dept B", "482915", UserRole::Employee, None)
-        .await
-        .expect("create b");
+        .expect("create employee");
 
-    let (admin_id, admin_code) = create_test_admin(&pool).await;
-
-    let count = bulk_assign_department(&pool, &[a.id, b.id], "Operations", admin_id)
+    dtr::services::profile::set_department(&pool, employee.id, "Operations")
         .await
-        .expect("bulk assign");
-    assert_eq!(count, 2);
+        .expect("set department");
 
     let rows = list_admin_employee_rows(&pool, &AdminEmployeeQuery::default())
         .await
         .expect("list");
-    let row_a = rows.iter().find(|r| r.id == a.id).expect("row a");
-    assert_eq!(row_a.department.as_deref(), Some("Operations"));
-    assert!(profile_completeness_pct(row_a) > 0);
+    let row = rows.iter().find(|r| r.id == employee.id).expect("row");
+    assert_eq!(row.department.as_deref(), Some("Operations"));
+    assert!(profile_completeness_pct(row) > 0);
 
-    cleanup_employee(&pool, &code_a).await;
-    cleanup_employee(&pool, &code_b).await;
-    cleanup_employee(&pool, &admin_code).await;
+    cleanup_employee(&pool, &code).await;
 }
 
 #[tokio::test]
@@ -937,17 +896,8 @@ async fn in_app_notifications_include_missing_eod() {
 fn ot_status_auto_approves_when_approval_disabled() {
     let settings = dtr::models::CompanySettings {
         company_name: "Test".into(),
-        break_minutes: 60,
-        ot_threshold_minutes: 480,
-        grace_minutes: 5,
-        pay_period: dtr::models::PayPeriodType::Semimonthly,
-        pay_period_anchor: Date::from_calendar_date(2024, Month::January, 1).unwrap(),
-        timezone: "Asia/Manila".into(),
         ot_requires_approval: false,
-        journal_salary_expense_account: "5100".into(),
-        journal_net_payable_account: "2100".into(),
-        journal_salary_expense_label: "Salaries expense".into(),
-        journal_net_payable_label: "Net pay payable".into(),
+        ..Default::default()
     };
 
     assert_eq!(ot_status_for_minutes(90, &settings), OtStatus::Approved);
@@ -1098,6 +1048,7 @@ async fn closed_pay_period_blocks_leave_create_and_approval() {
         employee.id,
         today,
         today,
+        dtr::models::LeaveDayPortion::FullDay,
         LeaveRequestType::Vacation,
         Some("Planned day off"),
     )
@@ -1113,6 +1064,7 @@ async fn closed_pay_period_blocks_leave_create_and_approval() {
         employee.id,
         today,
         today,
+        dtr::models::LeaveDayPortion::FullDay,
         LeaveRequestType::SickLeave,
         Some("Should fail"),
     )
@@ -1305,18 +1257,8 @@ async fn company_timezone_drives_clock_in_work_date() {
     };
 
     let update = SettingsUpdate {
-        company_name: &original.company_name,
         timezone: new_timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
-        pay_period: original.pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
-        journal_salary_expense_account: &original.journal_salary_expense_account,
-        journal_net_payable_account: &original.journal_net_payable_account,
-        journal_salary_expense_label: &original.journal_salary_expense_label,
-        journal_net_payable_label: &original.journal_net_payable_label,
+        ..settings_update_from(&original)
     };
     update_settings(&pool, &update)
         .await
@@ -1349,21 +1291,7 @@ async fn company_timezone_drives_clock_in_work_date() {
         .await;
     cleanup_employee(&pool, &code).await;
 
-    let restore = SettingsUpdate {
-        company_name: &original.company_name,
-        timezone: &original.timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
-        pay_period: original.pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
-        journal_salary_expense_account: &original.journal_salary_expense_account,
-        journal_net_payable_account: &original.journal_net_payable_account,
-        journal_salary_expense_label: &original.journal_salary_expense_label,
-        journal_net_payable_label: &original.journal_net_payable_label,
-    };
-    update_settings(&pool, &restore)
+    update_settings(&pool, &settings_update_from(&original))
         .await
         .expect("restore timezone");
 }
@@ -1490,6 +1418,9 @@ async fn compensation_profile_persists_and_gross_pay_follows_policy() {
         pay_period: PayPeriodType::Semimonthly,
         approved_ot_minutes: 60,
         no_show_days: 1,
+        premium_pay_cents: 0,
+        employed_days: None,
+        period_calendar_days: None,
     });
     assert_eq!(gross, 1_216_500);
 
@@ -2141,38 +2072,14 @@ where
 {
     let original = get_settings(pool).await.expect("settings");
     let update = SettingsUpdate {
-        company_name: &original.company_name,
-        timezone: &original.timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
         pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
-        journal_salary_expense_account: &original.journal_salary_expense_account,
-        journal_net_payable_account: &original.journal_net_payable_account,
-        journal_salary_expense_label: &original.journal_salary_expense_label,
-        journal_net_payable_label: &original.journal_net_payable_label,
+        ..settings_update_from(&original)
     };
     update_settings(pool, &update)
         .await
         .expect("set pay period");
     test.await;
-    let restore = SettingsUpdate {
-        company_name: &original.company_name,
-        timezone: &original.timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
-        pay_period: original.pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
-        journal_salary_expense_account: &original.journal_salary_expense_account,
-        journal_net_payable_account: &original.journal_net_payable_account,
-        journal_salary_expense_label: &original.journal_salary_expense_label,
-        journal_net_payable_label: &original.journal_net_payable_label,
-    };
-    update_settings(pool, &restore)
+    update_settings(pool, &settings_update_from(&original))
         .await
         .expect("restore pay period");
 }
@@ -2316,6 +2223,7 @@ async fn admin_profile_stores_payroll_identity_fields() {
             department: None,
             employment_type: None,
             date_hired: None,
+            date_separated: None,
             work_location: None,
             bank_account: Some("1234567890"),
             tin: Some("123-456-789"),
@@ -2671,6 +2579,7 @@ async fn finalized_payroll_exports_include_allowances_and_bank_data() {
             department: None,
             employment_type: None,
             date_hired: None,
+            date_separated: None,
             work_location: None,
             bank_account: Some("1234567890"),
             tin: None,
@@ -2793,6 +2702,7 @@ async fn bank_upload_csv_omits_employees_without_bank_account() {
             department: None,
             employment_type: None,
             date_hired: None,
+            date_separated: None,
             work_location: None,
             bank_account: Some("9988776655"),
             tin: None,
@@ -2849,18 +2759,11 @@ async fn journal_export_uses_configurable_gl_accounts() {
 
     let original = get_settings(&pool).await.expect("settings");
     let custom_update = SettingsUpdate {
-        company_name: &original.company_name,
-        timezone: &original.timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
-        pay_period: original.pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
         journal_salary_expense_account: "6100",
         journal_net_payable_account: "2200",
         journal_salary_expense_label: "Custom salary expense",
         journal_net_payable_label: "Custom net payable",
+        ..settings_update_from(&original)
     };
     update_settings(&pool, &custom_update)
         .await
@@ -2929,21 +2832,7 @@ async fn journal_export_uses_configurable_gl_accounts() {
     cleanup_employee(&pool, &emp_code).await;
     cleanup_employee(&pool, &admin_code).await;
 
-    let restore = SettingsUpdate {
-        company_name: &original.company_name,
-        timezone: &original.timezone,
-        break_minutes: original.break_minutes,
-        ot_threshold_minutes: original.ot_threshold_minutes,
-        grace_minutes: original.grace_minutes,
-        pay_period: original.pay_period,
-        pay_period_anchor: original.pay_period_anchor,
-        ot_requires_approval: original.ot_requires_approval,
-        journal_salary_expense_account: &original.journal_salary_expense_account,
-        journal_net_payable_account: &original.journal_net_payable_account,
-        journal_salary_expense_label: &original.journal_salary_expense_label,
-        journal_net_payable_label: &original.journal_net_payable_label,
-    };
-    update_settings(&pool, &restore)
+    update_settings(&pool, &settings_update_from(&original))
         .await
         .expect("restore journal settings");
 }
@@ -3021,6 +2910,396 @@ async fn draft_attendance_becomes_stale_after_no_show_is_marked() {
             .expect("stale after no-show"),
         "draft should be stale after attendance changed"
     );
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn finalize_blocks_when_draft_attendance_is_stale() {
+    let Some(pool) = common::test_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("STFN");
+    let emp_code = unique_code("STFE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Stale Finalize Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Stale Finalize Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("stale finalize test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+
+    mark_absence_for_employee(
+        &pool,
+        employee.id,
+        period_start,
+        AttendanceStatus::NoShow,
+        admin.id,
+        true,
+        admin.id,
+    )
+    .await
+    .expect("mark no-show");
+
+    clear_pending_ot_in_run(&pool, run_id).await;
+    let err = finalize_run(&pool, run_id, admin.id)
+        .await
+        .expect_err("stale draft must block finalize");
+    assert!(
+        matches!(err, AppError::BadRequest(ref msg) if msg.contains("attendance changed")),
+        "unexpected error: {err}"
+    );
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn draft_payroll_line_includes_holiday_premium_when_enabled() {
+    let Some(pool) = common::test_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PRHD");
+    let emp_code = unique_code("PRHE");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Holiday Premium Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Holiday Premium Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let original = get_settings(&pool).await.expect("settings");
+    update_settings(
+        &pool,
+        &SettingsUpdate {
+            premium_holiday: true,
+            ..settings_update_from(&original)
+        },
+    )
+    .await
+    .expect("enable holiday premium");
+    let settings = get_settings(&pool).await.expect("settings");
+    assert!(settings.premium_holiday);
+
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput::new(employee.id, 2_600_000, effective, admin.id),
+    )
+    .await
+    .expect("compensation");
+    ensure_all_active_have_compensation(&pool, admin.id, effective).await;
+
+    let holiday = add_holiday(&pool, period_start, "Premium E2E Holiday")
+        .await
+        .expect("holiday");
+    assert!(is_holiday(&pool, period_start).await.expect("is holiday"));
+
+    let tz = settings.timezone.as_str();
+    let clock_in =
+        combine_date_time(period_start, Time::from_hms(9, 0, 0).unwrap(), tz).expect("clock in");
+    let clock_out =
+        combine_date_time(period_start, Time::from_hms(18, 0, 0).unwrap(), tz).expect("clock out");
+    let breakdown = calculate(clock_in, clock_out, &settings);
+    sqlx::query(
+        "INSERT INTO time_entries
+            (employee_id, work_date, clock_in, clock_out, gross_minutes, net_minutes,
+             regular_minutes, ot_minutes, ot_status, attendance)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'none', 'on_time')",
+    )
+    .bind(employee.id)
+    .bind(period_start)
+    .bind(clock_in)
+    .bind(clock_out)
+    .bind(breakdown.gross_minutes)
+    .bind(breakdown.net_minutes)
+    .bind(breakdown.regular_minutes)
+    .bind(breakdown.ot_minutes)
+    .execute(&pool)
+    .await
+    .expect("time entry");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("holiday premium e2e"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_id == employee.id)
+        .expect("employee line");
+    assert!(
+        line.premium_pay_cents > 0,
+        "expected holiday premium on line, got {}",
+        line.premium_pay_cents
+    );
+
+    void_draft_run(&pool, run_id).await.expect("void");
+    let _ = dtr::services::holidays::delete_holiday(&pool, holiday.id).await;
+    cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+    update_settings(&pool, &settings_update_from(&original))
+        .await
+        .expect("restore settings");
+}
+
+#[tokio::test]
+async fn payroll_prorates_base_for_mid_period_hire() {
+    let Some(pool) = common::test_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("PRAD");
+    let emp_code = unique_code("PREM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "Proration Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "Proration Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let period_days = (period_end - period_start).whole_days() + 1;
+    let hire_offset = (period_days / 2).min(period_days.saturating_sub(1).max(0));
+    let hired = period_start + time::Duration::days(hire_offset);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput::new(employee.id, 2_600_000, effective, admin.id),
+    )
+    .await
+    .expect("compensation");
+    update_admin(
+        &pool,
+        employee.id,
+        admin.id,
+        AdminProfileInput {
+            contact_number: None,
+            personal_email: None,
+            birthdate: None,
+            address: None,
+            emergency_contact_name: None,
+            emergency_contact_phone: None,
+            job_title: None,
+            department: None,
+            employment_type: None,
+            date_hired: Some(hired),
+            date_separated: None,
+            work_location: None,
+            bank_account: None,
+            tin: None,
+            sss_number: None,
+            philhealth_number: None,
+        },
+    )
+    .await
+    .expect("profile");
+
+    close_pay_period(
+        &pool,
+        period_start,
+        period_end,
+        admin.id,
+        Some("proration test"),
+    )
+    .await
+    .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("employee line");
+
+    let (employed, calendar_days) = employed_days_in_period(
+        period_start,
+        period_end,
+        EmploymentSpan {
+            date_hired: Some(hired),
+            date_separated: None,
+        },
+    );
+    let expected_base = prorated_period_amount_cents(
+        base_pay_cents_for_period(2_600_000, settings.pay_period),
+        employed,
+        calendar_days,
+    );
+    assert_eq!(line.employed_days, Some(employed as i32));
+    assert_eq!(line.period_calendar_days, Some(calendar_days as i32));
+    assert_eq!(line.base_pay_cents, expected_base);
+    assert!(
+        employed < calendar_days,
+        "hire date should trigger proration"
+    );
+
+    cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
+    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &admin_code).await;
+}
+
+#[tokio::test]
+async fn payroll_auto_applies_lwop_deduction_on_draft() {
+    let Some(pool) = common::test_pool().await else {
+        eprintln!("skipping integration test: DATABASE_URL not available");
+        return;
+    };
+
+    let admin_code = unique_code("LWAD");
+    let emp_code = unique_code("LWEM");
+    let admin = create_employee(
+        &pool,
+        &admin_code,
+        "LWOP Admin",
+        "482915",
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("admin");
+    let employee = create_employee(
+        &pool,
+        &emp_code,
+        "LWOP Employee",
+        "482915",
+        UserRole::Employee,
+        None,
+    )
+    .await
+    .expect("employee");
+
+    let settings = get_settings(&pool).await.expect("settings");
+    let (period_start, period_end) = isolated_payroll_period(&settings);
+    let effective = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+
+    upsert_profile(
+        &pool,
+        &UpsertProfileInput::new(employee.id, 2_600_000, effective, admin.id),
+    )
+    .await
+    .expect("compensation");
+
+    for offset in [0i64, 1] {
+        mark_absence_for_employee(
+            &pool,
+            employee.id,
+            period_start + time::Duration::days(offset),
+            AttendanceStatus::Lwop,
+            admin.id,
+            true,
+            admin.id,
+        )
+        .await
+        .expect("mark lwop");
+    }
+
+    close_pay_period(&pool, period_start, period_end, admin.id, Some("lwop test"))
+        .await
+        .expect("close");
+
+    let run_id = create_draft_run(&pool, period_start, period_end, admin.id, &settings, None)
+        .await
+        .expect("draft");
+    let lines = list_lines_for_run(&pool, run_id).await.expect("lines");
+    let line = lines
+        .iter()
+        .find(|l| l.employee_code == emp_code.to_uppercase())
+        .expect("employee line");
+    assert_eq!(line.lwop_days, 2);
+
+    let deductions = list_deductions_for_line(&pool, line.id)
+        .await
+        .expect("deductions");
+    let lwop = deductions
+        .iter()
+        .find(|d| d.code == LWOP_CODE)
+        .expect("lwop deduction");
+    assert_eq!(lwop.amount_cents, 200_000);
+    assert_eq!(lwop.note.as_deref(), Some(AUTO_NOTE));
+    assert_eq!(line.net_pay_cents, line.gross_pay_cents - 200_000);
 
     cleanup_payroll_test_period(&pool, Some(run_id), period_start, period_end).await;
     cleanup_employee(&pool, &emp_code).await;

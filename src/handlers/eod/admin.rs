@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     audit::log_action,
@@ -64,29 +64,27 @@ pub async fn admin_unlock_eod(
     AuthUser(user): AuthUser,
     Path(report_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    let report = unlock_report(&state.pool, report_id, user.employee_id).await?;
-    let employee = find_by_id(&state.pool, report.employee_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let result: AppResult<()> = async {
+        let report = unlock_report(&state.pool, report_id, user.employee_id).await?;
+        let employee = find_by_id(&state.pool, report.employee_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "eod.unlocked",
-        &format!(
-            "Unlocked EOD for {} ({}) on {}",
-            employee.full_name,
-            employee.employee_code,
-            format_date(report.report_date)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "eod.unlocked",
+            &format!(
+                "Unlocked EOD for {} ({}) on {}",
+                employee.full_name,
+                employee.employee_code,
+                format_date(report.report_date)
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
-        &session,
-        "/admin/eod",
-        "success",
-        &format!("EOD unlocked for {}", employee.full_name),
-    )
-    .await
+    redirect_with_flash_from_result(&session, "/admin/eod", "EOD unlocked", result).await
 }

@@ -34,12 +34,30 @@ impl LeaveRequestType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "leave_day_portion", rename_all = "snake_case")]
+pub enum LeaveDayPortion {
+    FullDay,
+    HalfDay,
+}
+
+impl LeaveDayPortion {
+    pub fn label(self) -> &'static str {
+        match self {
+            LeaveDayPortion::FullDay => "Whole day",
+            LeaveDayPortion::HalfDay => "Half day",
+        }
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LeaveRequest {
     pub id: Uuid,
     pub employee_id: Uuid,
     pub start_date: Date,
     pub end_date: Date,
+    pub day_portion: LeaveDayPortion,
     pub leave_type: LeaveRequestType,
     pub reason: Option<String>,
     pub status: LeaveRequestStatus,
@@ -56,6 +74,7 @@ pub struct LeaveRequestWithEmployee {
     pub full_name: String,
     pub start_date: Date,
     pub end_date: Date,
+    pub day_portion: LeaveDayPortion,
     pub leave_type: LeaveRequestType,
     pub reason: Option<String>,
     pub status: LeaveRequestStatus,

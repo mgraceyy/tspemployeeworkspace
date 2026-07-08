@@ -1,9 +1,62 @@
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::auth::pin::hash_pin;
 use crate::error::{AppError, AppResult};
 use crate::models::{Employee, EmployeeSummary, UserRole};
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct EmployeeAuthSnapshot {
+    pub is_active: bool,
+    pub session_version: i32,
+    pub role: UserRole,
+    pub must_change_pin: bool,
+    pub employee_code: String,
+    pub full_name: String,
+}
+
+fn auth_snapshot_cache() -> &'static Mutex<HashMap<Uuid, EmployeeAuthSnapshot>> {
+    static CACHE: OnceLock<Mutex<HashMap<Uuid, EmployeeAuthSnapshot>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn invalidate_auth_snapshot_cache(employee_id: Uuid) {
+    if let Ok(mut cache) = auth_snapshot_cache().lock() {
+        cache.remove(&employee_id);
+    }
+}
+
+pub async fn fetch_auth_snapshot(
+    pool: &PgPool,
+    employee_id: Uuid,
+) -> AppResult<Option<EmployeeAuthSnapshot>> {
+    if let Ok(cache) = auth_snapshot_cache().lock() {
+        if let Some(snapshot) = cache.get(&employee_id) {
+            return Ok(Some(snapshot.clone()));
+        }
+    }
+
+    let snapshot = sqlx::query_as::<_, EmployeeAuthSnapshot>(
+        "SELECT is_active, session_version, role, must_change_pin, employee_code, full_name
+         FROM employees
+         WHERE id = $1",
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    if let Some(ref row) = snapshot {
+        if let Ok(mut cache) = auth_snapshot_cache().lock() {
+            cache.insert(employee_id, row.clone());
+        }
+    }
+
+    Ok(snapshot)
+}
 
 const WEAK_PINS: &[&str] = &[
     "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999", "1234", "4321",
@@ -20,10 +73,12 @@ pub fn validate_pin(pin: &str) -> AppResult<()> {
             "This PIN is too easy to guess — choose a different one",
         ));
     }
-    if pin.chars().all(|c| c == pin.chars().next().unwrap()) {
-        return Err(AppError::bad_request(
-            "PIN cannot be the same digit repeated — choose a different one",
-        ));
+    if let Some(first) = pin.chars().next() {
+        if pin.chars().all(|c| c == first) {
+            return Err(AppError::bad_request(
+                "PIN cannot be the same digit repeated — choose a different one",
+            ));
+        }
     }
     Ok(())
 }
@@ -119,6 +174,7 @@ pub async fn create_employee(
 
     crate::services::profile::ensure_profile(pool, employee.id).await?;
     crate::services::requirements::seed_for_employee(pool, employee.id).await?;
+    crate::services::leave_balances::ensure_employee_balances(pool, employee.id).await?;
 
     Ok(employee)
 }
@@ -162,6 +218,7 @@ pub async fn update_employee(
     })?
     .ok_or(AppError::NotFound)?;
 
+    invalidate_auth_snapshot_cache(employee_id);
     Ok(employee)
 }
 
@@ -180,6 +237,7 @@ pub async fn set_employee_active(
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    invalidate_auth_snapshot_cache(employee_id);
     Ok(())
 }
 
@@ -200,6 +258,7 @@ pub async fn reset_employee_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str)
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    invalidate_auth_snapshot_cache(employee_id);
     Ok(())
 }
 
@@ -215,6 +274,7 @@ pub async fn bump_session_version(pool: &PgPool, employee_id: Uuid) -> AppResult
     .await
     .map_err(|e| AppError::Internal(e.into()))?
     .ok_or(AppError::NotFound)?;
+    invalidate_auth_snapshot_cache(employee_id);
     Ok(version)
 }
 
@@ -232,6 +292,7 @@ pub async fn change_own_pin(pool: &PgPool, employee_id: Uuid, new_pin: &str) -> 
     if updated.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
+    invalidate_auth_snapshot_cache(employee_id);
     Ok(())
 }
 

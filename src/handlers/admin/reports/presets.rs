@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::{redirect_with_flash, redirect_with_flash_from_result};
 use crate::models::UserRole;
 use crate::services::{
     audit::log_action,
@@ -42,31 +42,32 @@ pub async fn save_report_preset_action(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let created = create_report_preset(
-        &state.pool,
-        &form.preset_name,
-        department,
-        role,
-        form.employee_id,
-        user.employee_id,
-    )
-    .await?;
+    let result: AppResult<String> = async {
+        let created = create_report_preset(
+            &state.pool,
+            &form.preset_name,
+            department,
+            role,
+            form.employee_id,
+            user.employee_id,
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "reports.preset_saved",
-        &format!("Saved report preset \"{}\"", created.name),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "reports.preset_saved",
+            &format!("Saved report preset \"{}\"", created.name),
+        )
+        .await?;
+        Ok(format!("Saved preset \"{}\"", created.name))
+    }
+    .await;
 
-    redirect_with_flash(
-        &session,
-        "/admin/reports",
-        "success",
-        &format!("Saved preset \"{}\"", created.name),
-    )
-    .await
+    match result {
+        Ok(message) => redirect_with_flash(&session, "/admin/reports", "success", &message).await,
+        Err(err) => redirect_with_flash_from_result(&session, "/admin/reports", "", Err(err)).await,
+    }
 }
 
 pub async fn delete_report_preset_action(
@@ -75,15 +76,19 @@ pub async fn delete_report_preset_action(
     AuthUser(user): AuthUser,
     Path(preset_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    delete_report_preset(&state.pool, preset_id).await?;
+    let result: AppResult<()> = async {
+        delete_report_preset(&state.pool, preset_id).await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "reports.preset_deleted",
-        "Deleted report preset",
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "reports.preset_deleted",
+            "Deleted report preset",
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(&session, "/admin/reports", "success", "Preset deleted").await
+    redirect_with_flash_from_result(&session, "/admin/reports", "Preset deleted", result).await
 }

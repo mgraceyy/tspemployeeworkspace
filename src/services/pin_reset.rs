@@ -187,6 +187,7 @@ pub async fn approve_request(
     tx.commit()
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
+    crate::services::employees::invalidate_auth_snapshot_cache(request.employee_id);
     Ok(())
 }
 

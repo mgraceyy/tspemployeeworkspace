@@ -2,12 +2,13 @@ pub mod attendance;
 pub mod audit;
 pub mod clock;
 pub mod compensation;
-pub mod compensation_import;
+
 pub mod corrections;
 pub mod employees;
 pub mod eod;
 pub mod holidays;
 pub mod leave;
+pub mod leave_balances;
 pub mod profile;
 pub mod requirements;
 

@@ -1,26 +1,30 @@
 {% extends "base.html" %}
+{% block body_class %}page-auth{% endblock %}
 {% block page %}
-<section class="login-card">
-  <h1>Request PIN Reset</h1>
-  <p class="muted">Forgot your PIN? Submit a request for your manager or admin to review.</p>
-  {% if content.success %}
-  <div class="alert alert-success">{{ content.success }}</div>
-  {% endif %}
-  {% if content.error %}
-  <div class="alert alert-error">{{ content.error }}</div>
-  {% endif %}
-  <form method="post" action="/login/request-pin-reset" class="stack">
-    {% include "partials/csrf_field.html" %}
-    <label>
-      Employee Code
-      <input type="text" name="employee_code" required autocomplete="username" placeholder="E0042">
-    </label>
-    <label>
-      Reason (optional)
-      <textarea name="reason" rows="3" placeholder="e.g. Forgot PIN after leave"></textarea>
-    </label>
-    <button type="submit" class="btn btn-primary">Submit Request</button>
-  </form>
-  <p class="hint"><a href="/login">← Back to sign in</a></p>
-</section>
+<div class="auth-shell">
+  <section class="auth-card login-card">
+    <div class="auth-card-icon" aria-hidden="true">🔑</div>
+    <h1>Request PIN Reset</h1>
+    <p class="muted">Forgot your PIN? Submit a request for your manager or admin to review.</p>
+    {% if content.success %}
+    <div class="alert alert-success" role="status">{{ content.success }}</div>
+    {% endif %}
+    {% if content.error %}
+    <div class="alert alert-error" role="alert">{{ content.error }}</div>
+    {% endif %}
+    <form method="post" action="/login/request-pin-reset" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>
+        Employee Code
+        <input type="text" name="employee_code" required autocomplete="username" placeholder="e.g. E0042" autocapitalize="characters">
+      </label>
+      <label>
+        Reason (optional)
+        <textarea name="reason" rows="3" placeholder="e.g. Forgot PIN after leave"></textarea>
+      </label>
+      <button type="submit" class="btn btn-primary btn-large">Submit Request</button>
+    </form>
+    <p class="hint"><a href="/login">← Back to sign in</a></p>
+  </section>
+</div>
 {% endblock %}

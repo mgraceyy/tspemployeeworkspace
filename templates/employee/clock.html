@@ -1,77 +1,71 @@
 {% extends "base.html" %}
+{% block body_class %}page-clock{% endblock %}
+{% block main_class %}clock-main{% endblock %}
 {% block page %}
-<section class="page-header clock-header">
-  <h1>Clock In / Out</h1>
-  <p class="muted">Today: {{ content.today }}</p>
-  <p class="clock-now" aria-live="polite">{{ content.now }}</p>
-</section>
-
-{% if content.holiday_today %}
-<div class="alert alert-success">Today is a company holiday. EOD is not required.</div>
-{% elif content.eod_due %}
-<div class="alert alert-info">
-  You clocked in today but haven't submitted your EOD yet.
-  <a href="/me/eod">Submit EOD →</a>
-</div>
-{% endif %}
-
-{% if content.upcoming_holidays %}
-<section class="panel narrow-panel">
-  <h2>Upcoming holidays</h2>
-  <ul class="employee-list">
-    {% for holiday in content.upcoming_holidays %}
-    <li><strong>{{ holiday.date }}</strong> — {{ holiday.name }}</li>
-    {% endfor %}
-  </ul>
-  <p><a href="/me/holidays">View full holiday calendar →</a></p>
-</section>
-{% endif %}
-
-{% if content.shift %}
-<div class="info-card shift-info">
-  <h2>Scheduled Shift</h2>
-  <p class="shift-times">{{ content.shift.start_time }} – {{ content.shift.end_time }}</p>
-</div>
-{% endif %}
-
-<div class="clock-card status-{{ content.status }}">
-  {% if content.status == "not_started" %}
-  <p class="status-label">You are not clocked in</p>
-  <form method="post" action="/clock/in" class="clock-action">
-    {% include "partials/csrf_field.html" %}
-    <button type="submit" class="btn btn-primary btn-clock">Time In</button>
-  </form>
-  {% elif content.status == "clocked_in" %}
-  <p class="status-label">Clocked in since</p>
-  <p class="clock-time-display">{{ content.entry.clock_in }}</p>
-  <p class="clock-since-hint muted">Tap below when you are ready to clock out.</p>
-  <form method="post" action="/clock/out" class="clock-action stack">
-    {% include "partials/csrf_field.html" %}
-    {% if content.ot_requires_approval %}
-    <label>OT reason (required if you worked overtime)
-      <textarea name="ot_reason" rows="2" placeholder="e.g. Urgent deliverable, client call"></textarea>
-    </label>
-    <p class="hint">If your shift runs past regular hours, explain why before clocking out. Your manager will review pending OT.</p>
-    {% endif %}
-    <button type="submit" class="btn btn-danger btn-clock">Time Out</button>
-  </form>
-  {% else %}
-  <p class="status-label">Day complete</p>
-  <dl class="summary-grid">
-    <div><dt>In</dt><dd>{{ content.entry.clock_in }}</dd></div>
-    <div><dt>Out</dt><dd>{{ content.entry.clock_out }}</dd></div>
-    <div><dt>Regular</dt><dd>{{ content.entry.regular }}</dd></div>
-    <div><dt>OT</dt><dd>
-      {% if content.entry.ot != "—" %}
-        {{ content.entry.ot }} ({{ content.entry.ot_status }})
-      {% else %}
-        —
+<div class="clock-page">
+  <header class="clock-page-header">
+    <h1>Clock In / Out</h1>
+    <p class="clock-now" aria-live="polite" data-timezone="{{ content.timezone }}">{{ content.now }}</p>
+    <div class="clock-page-meta">
+      <span class="stat-pill">{{ content.today }}</span>
+      {% if content.shift %}
+      <span class="stat-pill">{{ content.shift.start_time }} – {{ content.shift.end_time }}</span>
       {% endif %}
-    </dd></div>
-  </dl>
-  {% if content.entry.ot_status == "Pending" %}
-  <p class="alert alert-info">Overtime is pending manager approval.</p>
+    </div>
+  </header>
+
+  {% if content.holiday_today %}
+  <p class="clock-notice clock-notice-success">Company holiday — EOD not required.</p>
+  {% elif content.eod_due %}
+  <p class="clock-notice clock-notice-info">
+    EOD not submitted yet. <a href="/me/eod">Submit EOD</a>
+  </p>
   {% endif %}
-  {% endif %}
+
+  <div class="clock-page-center">
+    <div class="clock-card status-{{ content.status }}">
+      <span class="clock-status-dot" aria-hidden="true"></span>
+      {% if content.status == "not_started" %}
+      <p class="status-label">You are not clocked in</p>
+      <form method="post" action="/clock/in" class="clock-action">
+        {% include "partials/csrf_field.html" %}
+        <button type="submit" class="btn btn-primary btn-clock">Time In</button>
+      </form>
+      {% elif content.status == "clocked_in" %}
+      <p class="status-label">Clocked in since</p>
+      <p class="clock-time-display">{{ content.entry.clock_in }}</p>
+      <form method="post" action="/clock/out" class="clock-action stack">
+        {% include "partials/csrf_field.html" %}
+        {% if content.ot_requires_approval %}
+        <label class="clock-ot-field stack">
+          OT reason
+          <textarea name="ot_reason" rows="2" placeholder="Required if you worked overtime"></textarea>
+        </label>
+        {% endif %}
+        <button type="submit" class="btn btn-danger btn-clock">Time Out</button>
+      </form>
+      {% else %}
+      <p class="status-label">Day complete</p>
+      <dl class="summary-grid clock-summary">
+        <div><dt>In</dt><dd>{{ content.entry.clock_in }}</dd></div>
+        <div><dt>Out</dt><dd>{{ content.entry.clock_out }}</dd></div>
+        <div><dt>Regular</dt><dd>{{ content.entry.regular }}</dd></div>
+        <div><dt>OT</dt><dd>
+          {% if content.entry.ot != "—" %}
+            {{ content.entry.ot }} ({{ content.entry.ot_status }})
+          {% else %}
+            —
+          {% endif %}
+        </dd></div>
+      </dl>
+      {% if content.entry.ot_status == "Pending" %}
+      <p class="clock-notice clock-notice-info clock-notice-inline">OT pending manager approval.</p>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/clock.js"></script>
 {% endblock %}

@@ -5,22 +5,23 @@
 Employee timekeeping (Daily Time Record) and lightweight employee workspace for **TalaSora Prime** — built with Rust, Axum, PostgreSQL, and MiniJinja.
 
 > **Repository:** [github.com/mgraceyy/tspemployeeworkspace](https://github.com/mgraceyy/tspemployeeworkspace)  
-> **License:** MIT · **Version:** v0.3.0
+> **License:** MIT · **Version:** v0.3.1
 
 ## Features
 
 ### Timekeeping (core)
 
 - **Employees** — clock in/out, personal timesheet, voluntary PIN change
-- **Managers** — team dashboard, timesheets, time corrections, no-show marking, OT approval
-- **Admins** — employee management, shift schedules, company settings, payroll reports (CSV/Excel), compensation import, payroll runs, deduction types
+- **Managers** — team dashboard, timesheets, time corrections, absence marking (no-show, sick, vacation, **LWOP**), OT approval
+- **Admins** — employee management, shift schedules, company settings (pay period, gov deduction toggles, labor premium toggles, leave defaults), payroll reports (CSV/Excel), compensation import, payroll runs (proration, LWOP auto-deductions), deduction types
 
 ### Employee workspace
 
-- **Profiles** — employees edit contact number, personal email, and profile photo; admins manage full work profile (department, job title, date hired, bank/TIN/SSS/PhilHealth, etc.)
+- **Profiles** — employees edit contact number, personal email, and profile photo; admins manage full work profile (department, job title, date hired, **last day** for final pay proration, bank/TIN/SSS/PhilHealth, etc.)
 - **PIN reset** — employees request a reset; managers/admins approve with a temporary PIN (must change on next login)
 - **Requirements** — admin-defined checklist types with optional expiry and file uploads (PDF, images, Word); employees submit, admins approve/reject; expired items can be re-submitted
-- **EOD (End of Day)** — required on days the employee clocks in; department-scoped Team EOD feed; submit lock with admin unlock for corrections
+- **Leave** — vacation, sick, official, and offset requests with manager approval/revoke; vacation/sick **balance tracking** (defaults in Settings, editable per employee); overlapping leave blocked at the database
+- **EOD (End of Day)** — required on days the employee clocks in; manager-scoped Team EOD feed (same `manager_id` as OT/leave); submit lock with admin unlock for corrections
 - **EOD history** — employees browse past submitted reports
 - **Weekly EOD export** — managers/admins download a 7-day CSV
 
@@ -99,7 +100,7 @@ Employee timekeeping (Daily Time Record) and lightweight employee workspace for 
 | `METRICS_TOKEN` | No | Require `Authorization: Bearer …` or `?token=` to scrape `/metrics` |
 | `BIND_ADDR` | No | Listen address (default: `0.0.0.0`) |
 | `PORT` | No | Listen port (default: `8080`) |
-| `DATABASE_MAX_CONNECTIONS` | No | SQLx pool size per app process (default: `5`) |
+| `DATABASE_MAX_CONNECTIONS` | No | SQLx pool size per app process (default: `15`) |
 | `UPLOAD_DIR` | No | Directory for requirement file uploads (default: `./uploads`) |
 | `MAX_UPLOAD_BYTES` | No | Max upload size in bytes (default: 10 MB) |
 | `RUST_LOG` | No | Log filter (default: `dtr=debug,tower_http=info,sqlx=warn`) |
@@ -152,9 +153,12 @@ When `METRICS_TOKEN` is set, pass `Authorization: Bearer <token>` or `?token=<to
 
 ## Admin onboarding tips
 
-1. **Set departments** — use bulk assign on the Employees page so Team EOD works.
-2. **Define requirement types** — checklist items are auto-assigned to all active employees.
-3. **Complete profiles** — the employee list shows requirements progress and profile completeness %.
+1. **Assign managers** — set each employee’s manager on the account so Team EOD, OT, and leave workflows use the same team scope.
+2. **Set departments** (optional) — bulk assign on the Employees page for reports and filtering.
+3. **Configure Settings** — pay period, timezone, optional government auto-deductions, labor premiums, and default leave balances.
+4. **Define requirement types** — checklist items are auto-assigned to all active employees.
+5. **Complete profiles** — date hired, bank account, and **last day** when separating; the employee list shows requirements progress and profile completeness %.
+6. **Compensation** — monthly salary (+ allowances) effective before the first payroll close.
 
 ## Project layout
 
@@ -165,22 +169,28 @@ templates/     MiniJinja HTML templates
 static/        CSS and static assets
 scripts/       Database and uploads backup/restore scripts
 e2e/           Playwright browser tests
-docs/          Reverse proxy examples, payroll roadmap (PAYROLL.md), Prometheus scrape + alert examples
+docs/          DEPLOY.md (production checklist), PAYROLL.md, reverse proxy examples, Prometheus scrape + alert examples
 ```
 
 ## Payroll roadmap
 
-**v0.3.0** adds transport/meal allowances, compensation CSV import, per-employee deduction defaults, bank upload + journal CSV exports, PDF payslips, attendance snapshot staleness warnings, profile photos, PIN reset, and employee archive filtering — on top of **v0.2.0** compensation, payroll runs, HTML payslips, and CSV export, and **v0.1.0** time & attendance reporting. See [docs/PAYROLL.md](docs/PAYROLL.md).
+**v0.3.0** adds transport/meal allowances, compensation CSV import, per-employee deduction defaults, bank upload + journal CSV exports, PDF payslips, attendance snapshot staleness warnings, profile photos, PIN reset, and employee archive filtering — on top of **v0.2.0** compensation, payroll runs, HTML payslips, and CSV export, and **v0.1.0** time & attendance reporting.
 
-**Ops (locked):** Admin runs payroll in-app; 13th-month accrual stays outside the app for now. Bank upload and journal CSV exports are available for finalized runs.
+**v0.3.0+** adds optional **government auto-deductions**, **PH labor premiums**, **leave balances** (with overlap protection and manager revoke), **salary proration** (hire date / last day), and **LWOP** unpaid-leave payroll deductions. See [docs/PAYROLL.md](docs/PAYROLL.md) for formulas, migrations (`025`–`030`), locked policy, and the upgrade checklist.
+
+**Production deploy:** [docs/DEPLOY.md](docs/DEPLOY.md) — secrets, Compose prod stack, smoke test, go-live payroll steps.
+
+**Ops (locked):** Admin runs payroll in-app; 13th-month accrual stays outside the app for now. Bank upload and journal CSV exports are available for finalized runs. Government deduction rates should be reviewed with your accountant before live payroll.
 
 ## Security headers
 
-The app sets `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` on HTML responses. Static assets under `/static/` are served with `Cache-Control: public, max-age=86400`. CSP allows inline styles (templates) but blocks scripts — navigation uses a CSS-only mobile menu toggle.
+The app sets `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` on HTML responses. Static assets under `/static/` are served with `Cache-Control: public, max-age=86400`. CSP allows inline styles (templates) and scripts from `/static/` (theme toggle). The mobile nav menu uses a CSS-only checkbox toggle.
 
 Authenticated sessions are **revalidated against the database** on each request: deactivated accounts, PIN resets, and role changes take effect immediately (stale cookies are cleared or redirected to `/change-pin`).
 
 ## Production notes
+
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for the full pre-flight checklist, upgrade path, smoke test, and rollback.
 
 - Set `SEED_DEFAULT_ADMIN=false` (or unset) in production — the app refuses to start if `SEED_DEFAULT_ADMIN=true` with `APP_ENV=production`.
 - Never enable `SEED_E2E_FIXTURES` in production.
@@ -328,7 +338,7 @@ The audit/deny steps ignore [RUSTSEC-2023-0071](https://rustsec.org/advisories/R
 
 ## Tests
 
-The suite has **185+ Rust tests** across unit, integration, and HTTP layers (`http_v03.rs` covers compensation import, deduction types, photo upload, logout-everywhere, and employee payslip PDF).
+The suite has **224+ Rust tests** across unit, integration, and HTTP layers (`government_auto_deductions.rs` and `leave_balances.rs` cover payroll toggles, stacked leave reservations, and leave balance flows; `http_v03.rs` covers compensation import, deduction types, photo upload, logout-everywhere, and employee payslip PDF).
 
 Unit tests (no database required):
 
@@ -398,8 +408,8 @@ git config user.email "221118937+mgraceyy@users.noreply.github.com"
 Tag production baselines after CI is green:
 
 ```bash
-git tag -a v0.3.0 -m "Payroll pack: allowances, import, exports, PDF payslips; foundation: photo, PIN reset, archive"
-git push origin v0.3.0
+git tag -a v0.3.1 -m "Payroll: proration, LWOP, leave overlap/revoke; deployment docs"
+git push origin v0.3.1
 ```
 
 ### Suggested GitHub repository settings

@@ -4,7 +4,7 @@ use tower_sessions::Session;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::{redirect_with_flash, redirect_with_flash_from_result};
 use crate::services::{
     audit::log_action,
     payroll_controls::{close_pay_period, reopen_pay_period, ClosePayPeriodResult},
@@ -27,18 +27,20 @@ pub async fn close_pay_period_action(
     AuthUser(user): AuthUser,
     Form(form): Form<PeriodControlForm>,
 ) -> AppResult<Redirect> {
-    let start = parse_date(&form.start).map_err(AppError::bad_request)?;
-    let end = parse_date(&form.end).map_err(AppError::bad_request)?;
-    let settings = get_settings(&state.pool).await?;
-    let canonical = assert_canonical_pay_period(&settings, start, end).is_ok();
-    let result = close_pay_period(
-        &state.pool,
-        start,
-        end,
-        user.employee_id,
-        form.note.as_deref(),
-    )
-    .await?;
+    let parsed: AppResult<_> = async {
+        Ok((
+            parse_date(&form.start).map_err(AppError::bad_request)?,
+            parse_date(&form.end).map_err(AppError::bad_request)?,
+        ))
+    }
+    .await;
+
+    let (start, end) = match parsed {
+        Ok(dates) => dates,
+        Err(err) => {
+            return redirect_with_flash_from_result(&session, "/admin/reports", "", Err(err)).await;
+        }
+    };
 
     let redirect_url = format!(
         "/admin/reports?start={}&end={}",
@@ -46,8 +48,19 @@ pub async fn close_pay_period_action(
         format_date(end)
     );
 
-    match result {
-        ClosePayPeriodResult::Closed => {
+    let settings = get_settings(&state.pool).await?;
+    let canonical = assert_canonical_pay_period(&settings, start, end).is_ok();
+    let close_result = close_pay_period(
+        &state.pool,
+        start,
+        end,
+        user.employee_id,
+        form.note.as_deref(),
+    )
+    .await;
+
+    match close_result {
+        Ok(ClosePayPeriodResult::Closed) => {
             log_action(
                 &state.pool,
                 user.employee_id,
@@ -67,7 +80,7 @@ pub async fn close_pay_period_action(
             };
             redirect_with_flash(&session, &redirect_url, "success", message).await
         }
-        ClosePayPeriodResult::AlreadyClosed => {
+        Ok(ClosePayPeriodResult::AlreadyClosed) => {
             redirect_with_flash(
                 &session,
                 &redirect_url,
@@ -75,6 +88,9 @@ pub async fn close_pay_period_action(
                 "This pay period is already closed",
             )
             .await
+        }
+        Err(err) => {
+            redirect_with_flash_from_result(&session, &redirect_url, "", Err(err)).await
         }
     }
 }
@@ -85,31 +101,40 @@ pub async fn reopen_pay_period_action(
     AuthUser(user): AuthUser,
     Form(form): Form<PeriodControlForm>,
 ) -> AppResult<Redirect> {
-    let start = parse_date(&form.start).map_err(AppError::bad_request)?;
-    let end = parse_date(&form.end).map_err(AppError::bad_request)?;
-    reopen_pay_period(&state.pool, start, end).await?;
+    let result: AppResult<_> = async {
+        let start = parse_date(&form.start).map_err(AppError::bad_request)?;
+        let end = parse_date(&form.end).map_err(AppError::bad_request)?;
+        reopen_pay_period(&state.pool, start, end).await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "reports.period_reopened",
-        &format!(
-            "Reopened pay period {} to {}",
-            format_date(start),
-            format_date(end)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "reports.period_reopened",
+            &format!(
+                "Reopened pay period {} to {}",
+                format_date(start),
+                format_date(end)
+            ),
+        )
+        .await?;
+        Ok((start, end))
+    }
+    .await;
 
-    redirect_with_flash(
-        &session,
-        &format!(
-            "/admin/reports?start={}&end={}",
-            format_date(start),
-            format_date(end)
-        ),
-        "success",
-        "Pay period reopened — time edits are allowed again",
-    )
-    .await
+    match result {
+        Ok((start, end)) => {
+            redirect_with_flash(
+                &session,
+                &format!(
+                    "/admin/reports?start={}&end={}",
+                    format_date(start),
+                    format_date(end)
+                ),
+                "success",
+                "Pay period reopened — time edits are allowed again",
+            )
+            .await
+        }
+        Err(err) => redirect_with_flash_from_result(&session, "/admin/reports", "", Err(err)).await,
+    }
 }

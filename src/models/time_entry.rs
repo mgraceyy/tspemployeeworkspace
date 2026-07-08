@@ -17,6 +17,7 @@ pub enum AttendanceStatus {
     Vacation,
     OfficialLeave,
     Offset,
+    Lwop,
 }
 
 impl AttendanceStatus {
@@ -27,6 +28,7 @@ impl AttendanceStatus {
                 | AttendanceStatus::Vacation
                 | AttendanceStatus::OfficialLeave
                 | AttendanceStatus::Offset
+                | AttendanceStatus::Lwop
         )
     }
 
@@ -38,6 +40,7 @@ impl AttendanceStatus {
                 | AttendanceStatus::Vacation
                 | AttendanceStatus::OfficialLeave
                 | AttendanceStatus::Offset
+                | AttendanceStatus::Lwop
         )
     }
 

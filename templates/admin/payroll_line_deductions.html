@@ -1,43 +1,62 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Payroll Deductions</h1>
-  <p class="muted">{{ content.employee_code }} · {{ content.full_name }}</p>
-  <p class="muted">{{ content.period_label }} · <strong>{{ content.status }}</strong></p>
-  <p><a href="/admin/payroll/{{ content.run_id }}">← Back to payroll run</a></p>
-</section>
-
-<section class="panel">
-  <h2>Earnings</h2>
-  <p>Gross pay: <strong>PHP {{ content.gross_pay }}</strong></p>
-  <p>Total deductions: <strong>PHP {{ content.total_deductions }}</strong></p>
-  <p>Net pay: <strong>PHP {{ content.net_pay }}</strong></p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/admin/payroll">Payroll</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <a href="/admin/payroll/{{ content.run_id }}">{{ content.period_label }}</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <span>{{ content.employee_code }}</span>
+    </nav>
+    <h1>{{ content.full_name }}</h1>
+    <p class="page-hero-lead">Payroll deductions for this employee line.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.status }}</span>
+      <span class="stat-pill">Gross PHP {{ content.gross_pay }}</span>
+      <span class="stat-pill">Net PHP {{ content.net_pay }}</span>
+    </div>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/admin/payroll/{{ content.run_id }}" class="btn">Back to run</a>
+  </div>
+</header>
 
 {% if content.is_draft %}
-<section class="panel narrow-panel">
-  <h2>Manual deductions</h2>
-  <p class="hint">Enter SSS, PhilHealth, Pag-IBIG, withholding tax, loans, and other deductions. Leave blank for zero. Total deductions cannot exceed gross pay.</p>
-  <form method="post" action="/admin/payroll/{{ content.run_id }}/lines/{{ content.line_id }}" class="stack">
+<section class="data-panel admin-form-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Manual deductions</h2>
+      <p class="data-panel-desc">Enter SSS, PhilHealth, Pag-IBIG, tax, loans, and other deductions. Total cannot exceed gross pay.</p>
+    </div>
+  </div>
+  <form method="post" action="/admin/payroll/{{ content.run_id }}/lines/{{ content.line_id }}" class="admin-form-stack">
     {% include "partials/csrf_field.html" %}
     {% for dt in content.deduction_types %}
     <fieldset class="deduction-fieldset">
       <legend>{{ dt.name }}</legend>
-      <label>Amount (PHP)
-        <input type="text" name="amount_{{ dt.code_lower }}" value="{{ dt.amount }}"
-          inputmode="decimal" placeholder="0.00">
-      </label>
-      <label>Note <span class="hint">(optional)</span>
-        <input type="text" name="note_{{ dt.code_lower }}" value="{{ dt.note }}" maxlength="200">
-      </label>
+      {% if dt.is_auto %}<p class="field-hint">Auto-calculated — edit to override; recalculate from run page restores defaults.</p>{% endif %}
+      <div class="admin-form-grid admin-form-grid-tight">
+        <label class="stack">
+          Amount (PHP)
+          <input type="text" name="amount_{{ dt.code_lower }}" value="{{ dt.amount }}" inputmode="decimal" placeholder="0.00">
+        </label>
+        <label class="stack">
+          Note
+          <input type="text" name="note_{{ dt.code_lower }}" value="{{ dt.note }}" maxlength="200">
+        </label>
+      </div>
     </fieldset>
     {% endfor %}
     <button type="submit" class="btn btn-primary">Save deductions</button>
   </form>
 </section>
 {% else %}
-<section class="panel">
-  <h2>Deductions</h2>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <h2>Deductions</h2>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>

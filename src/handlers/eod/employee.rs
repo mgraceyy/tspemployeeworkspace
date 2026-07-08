@@ -9,15 +9,15 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
-use crate::models::EodReportStatus;
+use crate::models::{EodReportStatus, UserRole};
 use crate::services::{
     eod::{
-        get_report_with_tasks, list_department_eod, list_department_eod_recent,
-        list_employee_eod_history, list_tasks, save_report, tasks_to_textareas,
+        can_view_team_eod_report, get_report_with_tasks, list_employee_eod_history, list_tasks,
+        list_team_eod_recent_submissions, list_team_eod_submissions, save_report,
+        tasks_to_textareas,
     },
-    profile::get_department,
     settings::get_settings,
     timezone::{company_date_now, format_date, format_time},
 };
@@ -55,12 +55,27 @@ pub async fn my_eod(
         })
         .collect();
 
+    let history = list_employee_eod_history(&state.pool, user.employee_id, 60).await?;
+    let tz = settings.timezone.as_str();
+    let history_rows: Vec<_> = history
+        .iter()
+        .filter(|item| item.report_date != today)
+        .map(|item| {
+            context! {
+                id => item.id,
+                report_date => format_date(item.report_date),
+                summary => item.summary.clone(),
+                submitted_at => item.submitted_at.map(|dt| format_time(dt, tz)).unwrap_or_default(),
+            }
+        })
+        .collect();
+
     render_page(
         &state,
         &session,
         Some(user),
         &settings.company_name,
-        "EOD Update",
+        "EOD",
         "employee/eod.html",
         context! {
             today => format_date(today),
@@ -72,6 +87,7 @@ pub async fn my_eod(
             blocked => blocked,
             planned => planned,
             tasks => task_rows,
+            history => history_rows,
             status => report.as_ref().map(|r| match r.status {
                 EodReportStatus::Draft => "Draft",
                 EodReportStatus::Submitted => "Submitted",
@@ -93,28 +109,33 @@ pub async fn save_my_eod(
     let submit = form.is_submit();
     let tasks = collect_tasks(&form);
 
-    if submit && tasks.is_empty() && form.summary_text().trim().is_empty() {
-        return Err(AppError::bad_request(
-            "Add at least one task or a summary before submitting",
-        ));
-    }
-
-    save_report(
-        &state.pool,
-        user.employee_id,
-        today,
-        form.summary_text(),
-        submit,
-        &tasks,
-    )
-    .await?;
-
     let message = if submit {
         "EOD submitted"
     } else {
         "EOD draft saved"
     };
-    redirect_with_flash(&session, "/me/eod", "success", message).await
+
+    let result: AppResult<()> = async {
+        if submit && tasks.is_empty() && form.summary_text().trim().is_empty() {
+            return Err(AppError::bad_request(
+                "Add at least one task or a summary before submitting",
+            ));
+        }
+
+        save_report(
+            &state.pool,
+            user.employee_id,
+            today,
+            form.summary_text(),
+            submit,
+            &tasks,
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result(&session, "/me/eod", message, result).await
 }
 
 pub async fn team_eod_feed(
@@ -124,19 +145,39 @@ pub async fn team_eod_feed(
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
     let today = company_date_now(&settings)?;
-    let department = get_department(&state.pool, user.employee_id).await?;
+    let is_admin = user.role.is_admin();
+    let manages_team = user.role.is_manager_or_admin();
 
-    let reports = if let Some(ref dept) = department {
-        list_department_eod(&state.pool, user.employee_id, dept, today).await?
-    } else {
-        Vec::new()
-    };
+    let reports =
+        list_team_eod_submissions(&state.pool, user.employee_id, is_admin, manages_team, today)
+            .await?;
 
-    let recent = if let Some(ref dept) = department {
-        let since = today - time::Duration::days(7);
-        list_department_eod_recent(&state.pool, dept, since).await?
+    let since = today - time::Duration::days(7);
+    let recent = list_team_eod_recent_submissions(
+        &state.pool,
+        user.employee_id,
+        is_admin,
+        manages_team,
+        since,
+    )
+    .await?;
+
+    let has_team = manages_team
+        || sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT manager_id FROM employees WHERE id = $1 AND is_active = TRUE",
+        )
+        .bind(user.employee_id)
+        .fetch_one(&state.pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?
+        .is_some();
+
+    let team_scope = if is_admin {
+        "All employees"
+    } else if user.role == UserRole::Manager {
+        "Your direct reports"
     } else {
-        Vec::new()
+        "Your team"
     };
 
     let tz = settings.timezone.as_str();
@@ -147,7 +188,6 @@ pub async fn team_eod_feed(
 
     let recent_rows: Vec<_> = recent
         .iter()
-        .filter(|r| r.employee_id != user.employee_id)
         .map(|r| {
             context! {
                 employee_code => r.employee_code.clone(),
@@ -167,8 +207,8 @@ pub async fn team_eod_feed(
         "Team EOD",
         "employee/team_eod.html",
         context! {
-            department => department.clone().unwrap_or_default(),
-            has_department => department.is_some(),
+            team_scope => team_scope,
+            has_team => has_team,
             today => format_date(today),
             reports => today_rows,
             recent => recent_rows,
@@ -215,7 +255,8 @@ pub async fn view_eod_detail(
     Path(report_id): Path<Uuid>,
 ) -> AppResult<HtmlPage> {
     let settings = get_settings(&state.pool).await?;
-    let department = get_department(&state.pool, user.employee_id).await?;
+    let is_admin = user.role.is_admin();
+    let manages_team = user.role.is_manager_or_admin();
 
     let report = sqlx::query_as::<_, crate::models::EodReportSummary>(
         "SELECT er.id, er.employee_id, e.employee_code, e.full_name, p.department,
@@ -231,12 +272,16 @@ pub async fn view_eod_detail(
     .map_err(|e| AppError::Internal(e.into()))?
     .ok_or(AppError::NotFound)?;
 
-    if report.employee_id != user.employee_id {
-        let viewer_dept = department.as_deref();
-        let report_dept = report.department.as_deref();
-        if viewer_dept.is_none() || report_dept.is_none() || viewer_dept != report_dept {
-            return Err(AppError::Forbidden);
-        }
+    let allowed = can_view_team_eod_report(
+        &state.pool,
+        user.employee_id,
+        report.employee_id,
+        is_admin,
+        manages_team,
+    )
+    .await?;
+    if !allowed {
+        return Err(AppError::Forbidden);
     }
 
     let tasks = list_tasks(&state.pool, report.id).await?;
@@ -272,35 +317,6 @@ pub async fn view_eod_detail(
     .await
 }
 
-pub async fn my_eod_history(
-    State(state): State<AppState>,
-    session: Session,
-    AuthUser(user): AuthUser,
-) -> AppResult<HtmlPage> {
-    let settings = get_settings(&state.pool).await?;
-    let history = list_employee_eod_history(&state.pool, user.employee_id, 60).await?;
-
-    let tz = settings.timezone.as_str();
-    let rows: Vec<_> = history
-        .iter()
-        .map(|item| {
-            context! {
-                id => item.id,
-                report_date => format_date(item.report_date),
-                summary => item.summary.clone(),
-                submitted_at => item.submitted_at.map(|dt| format_time(dt, tz)).unwrap_or_default(),
-            }
-        })
-        .collect();
-
-    render_page(
-        &state,
-        &session,
-        Some(user),
-        &settings.company_name,
-        "EOD History",
-        "employee/eod_history.html",
-        context! { reports => rows },
-    )
-    .await
+pub async fn my_eod_history() -> Redirect {
+    Redirect::to("/me/eod")
 }

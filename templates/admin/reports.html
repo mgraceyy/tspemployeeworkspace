@@ -1,216 +1,233 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Payroll Reports</h1>
-  <p class="muted">{{ content.pay_period_type }} period: {{ content.period_label }}</p>
-  {% if content.period_closed %}
-  <div class="alert alert-info">
-    {% if content.period_exactly_closed %}
-    This pay period is <strong>closed</strong>. Clock in/out, corrections, absence marking, leave requests, overtime review, and EOD edits for dates in this range are blocked until an admin reopens the period.
-    {% else %}
-    <strong>Some dates</strong> in this range fall in a closed pay period. Clock in/out, corrections, absence marking, leave requests, overtime review, and EOD edits are blocked for those dates.
-    {% endif %}
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Payroll Reports</h1>
+    <p class="page-hero-lead">{{ content.pay_period_type }} period attendance and leave summary.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.period_label }}</span>
+      {% if content.period_closed %}
+      <span class="stat-pill stat-pill-warn">Period closed</span>
+      {% endif %}
+      {% if content.has_pending_ot %}
+      <span class="stat-pill stat-pill-warn">{{ content.total_pending_ot_hours }} pending OT</span>
+      {% endif %}
+    </div>
   </div>
+  <div class="page-hero-actions">
+    <a href="/admin/reports/export.csv{{ content.export_query }}" class="btn">Summary CSV</a>
+    <a href="/admin/reports/export-detail.csv{{ content.export_query }}" class="btn">Per-day CSV</a>
+    <a href="/admin/reports/export.xlsx{{ content.export_query }}" class="btn btn-primary">Excel</a>
+  </div>
+</header>
+
+{% if content.period_closed %}
+<div class="alert alert-info">
+  {% if content.period_exactly_closed %}
+  This pay period is <strong>closed</strong>. Clock in/out, corrections, absence marking, leave requests, overtime review, and EOD edits for dates in this range are blocked until an admin reopens the period.
+  {% else %}
+  <strong>Some dates</strong> in this range fall in a closed pay period. Edits are blocked for those dates.
   {% endif %}
-</section>
+</div>
+{% endif %}
 
 {% if content.missing_compensation %}
 <div class="alert alert-warning">
   <strong>Missing compensation</strong> — no compensation effective on {{ content.end_date }} for:
   <strong>{{ content.missing_compensation | join(', ') }}</strong>.
-  These employees will be skipped in payroll runs until compensation is set.
 </div>
 {% endif %}
 
-<section class="panel narrow-panel">
-  <h2>Filters &amp; date range</h2>
-  <form method="get" action="/admin/reports" class="stack">
-    <label>Start date
-      <input type="date" name="start" value="{{ content.start_date }}">
+<section class="data-panel reports-filters-panel">
+  <form method="get" action="/admin/reports" class="data-panel-toolbar reports-toolbar">
+    <label class="filter-select stack">
+      Start
+      <input type="date" name="start" value="{{ content.start_date }}" aria-label="Start date">
     </label>
-    <label>End date
-      <input type="date" name="end" value="{{ content.end_date }}">
+    <label class="filter-select stack">
+      End
+      <input type="date" name="end" value="{{ content.end_date }}" aria-label="End date">
     </label>
-    <label>Department
-      <input type="text" name="department" value="{{ content.filter_department }}" list="dept-options" placeholder="All departments">
+    <label class="filter-select stack">
+      Department
+      <input type="text" name="department" value="{{ content.filter_department }}" list="dept-options" placeholder="All">
       <datalist id="dept-options">
         {% for dept in content.departments %}
         <option value="{{ dept }}">
         {% endfor %}
       </datalist>
     </label>
-    <label>Role
-      <select name="role">
+    <label class="filter-select stack">
+      Role
+      <select name="role" aria-label="Filter by role">
         <option value="">All roles</option>
         <option value="employee" {% if content.filter_role == "employee" %}selected{% endif %}>Employee</option>
         <option value="manager" {% if content.filter_role == "manager" %}selected{% endif %}>Manager</option>
         <option value="admin" {% if content.filter_role == "admin" %}selected{% endif %}>Admin</option>
       </select>
     </label>
-    <label>Employee
-      <select name="employee_id">
+    <label class="filter-select stack reports-employee-filter">
+      Employee
+      <select name="employee_id" aria-label="Filter by employee">
         <option value="">All employees</option>
         {% for emp in content.employees %}
         <option value="{{ emp.id }}" {% if content.filter_employee_id == emp.id %}selected{% endif %}>{{ emp.label }}</option>
         {% endfor %}
       </select>
     </label>
-    <div class="form-actions">
+    <div class="admin-toolbar-actions">
       <button type="submit" class="btn btn-primary">Apply</button>
       {% if content.custom_range %}
-      <a href="/admin/reports" class="btn">Current pay period</a>
+      <a href="/admin/reports" class="btn">Current period</a>
       {% endif %}
     </div>
   </form>
 </section>
 
-<section class="panel narrow-panel">
-  <h2>Saved presets</h2>
-  {% if content.presets %}
-  <ul class="preset-list">
-    {% for preset in content.presets %}
-    <li class="preset-item">
-      <a href="{{ preset.apply_url }}" class="btn btn-small">{{ preset.name }}</a>
-      <form method="post" action="/admin/reports/presets/{{ preset.id }}/delete" class="inline-form">
-        {% include "partials/csrf_field.html" %}
-        <button type="submit" class="btn btn-small btn-danger">Delete</button>
-      </form>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <p class="muted">No saved presets yet. Apply filters above, then save the current view.</p>
-  {% endif %}
-  <form method="post" action="/admin/reports/presets" class="stack">
-    {% include "partials/csrf_field.html" %}
-    {% if content.filter_department %}
-    <input type="hidden" name="department" value="{{ content.filter_department }}">
+<div class="page-layout page-layout-split reports-controls-layout">
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <h2>Saved presets</h2>
+    </div>
+    {% if content.presets %}
+    <ul class="admin-action-list">
+      {% for preset in content.presets %}
+      <li class="admin-action-item">
+        <a href="{{ preset.apply_url }}" class="btn btn-small">{{ preset.name }}</a>
+        <form method="post" action="/admin/reports/presets/{{ preset.id }}/delete" class="inline-form">
+          {% include "partials/csrf_field.html" %}
+          <button type="submit" class="btn btn-small btn-danger">Delete</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No saved presets yet.</p>
     {% endif %}
-    {% if content.filter_role %}
-    <input type="hidden" name="role" value="{{ content.filter_role }}">
-    {% endif %}
-    {% if content.filter_employee_id %}
-    <input type="hidden" name="employee_id" value="{{ content.filter_employee_id }}">
-    {% endif %}
-    <label>Preset name
-      <input type="text" name="preset_name" required placeholder="e.g. Engineering — semimonthly">
-    </label>
-    <button type="submit" class="btn btn-primary">Save current filters</button>
-  </form>
-</section>
+    <form method="post" action="/admin/reports/presets" class="admin-form-stack admin-form-stack-tight">
+      {% include "partials/csrf_field.html" %}
+      {% if content.filter_department %}<input type="hidden" name="department" value="{{ content.filter_department }}">{% endif %}
+      {% if content.filter_role %}<input type="hidden" name="role" value="{{ content.filter_role }}">{% endif %}
+      {% if content.filter_employee_id %}<input type="hidden" name="employee_id" value="{{ content.filter_employee_id }}">{% endif %}
+      <label class="stack">
+        Preset name
+        <input type="text" name="preset_name" required placeholder="e.g. Engineering — semimonthly">
+      </label>
+      <button type="submit" class="btn btn-primary">Save filters</button>
+    </form>
+  </section>
 
-<section class="panel narrow-panel">
-  <h2>Pay period control</h2>
-  <p class="hint">Closing a period blocks clock in/out, corrections, absence marking, leave approval, overtime review, and EOD edits for every date in the range until an admin reopens it.</p>
-  <p class="hint">Payroll runs require a <strong>full {{ content.settings_pay_period_label }}</strong> pay period. Use exactly <strong>{{ content.canonical_period_label }}</strong> (or switch to the current pay period) before closing for payroll.</p>
-  {% if not content.is_canonical_period %}
-  <div class="alert alert-warning">
-    This report range is not a full {{ content.settings_pay_period_label }} period. Close <strong>{{ content.canonical_period_label }}</strong> in Reports before running payroll.
-  </div>
-  {% endif %}
-  {% if content.has_pending_ot %}
-  <div class="alert alert-warning">
-    <strong>{{ content.total_pending_ot_hours }}</strong> hours of pending OT in this range ({{ content.total_pending_ot_minutes }} minutes). Approve or reject OT before finalizing payroll.
-  </div>
-  {% endif %}
-  {% if content.period_exactly_closed and content.is_canonical_period %}
-  <div class="alert alert-info">
-    {% if content.payroll_ready %}
-    This closed period is ready for payroll. <a href="/admin/payroll" class="btn btn-small btn-primary">Open payroll runs</a>
-    {% elif content.payroll_run_url %}
-    Payroll run for this period: <strong>{{ content.payroll_run_status }}</strong>.
-    <a href="{{ content.payroll_run_url }}" class="btn btn-small">View payroll run</a>
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <div class="data-panel-title">
+        <h2>Period control</h2>
+        <p class="data-panel-desc">Close <strong>{{ content.canonical_period_label }}</strong> before running payroll.</p>
+      </div>
+    </div>
+    {% if not content.is_canonical_period %}
+    <div class="alert alert-warning">This range is not a full {{ content.settings_pay_period_label }} period.</div>
     {% endif %}
-  </div>
-  {% endif %}
-  {% if content.overlapping_closed_periods %}
-  <ul class="closed-period-list">
-    {% for period in content.overlapping_closed_periods %}
-    <li class="closed-period-item">
-      <span class="closed-period-label">
-        <strong>{{ period.start_date }} – {{ period.end_date }}</strong>
-        {% if period.note %}<span class="muted"> — {{ period.note }}</span>{% endif %}
-        {% if period.reopen_blocked %}
-        <span class="muted"> — {{ period.reopen_blocked_reason }}
-          {% if period.payroll_run_url %}<a href="{{ period.payroll_run_url }}">View payroll run</a>{% endif %}
-        </span>
-        {% endif %}
-      </span>
-      {% if period.reopen_blocked %}
-      <button type="button" class="btn btn-small btn-danger" disabled>Reopen</button>
-      {% else %}
-      <form method="post" action="/admin/reports/reopen-period" class="inline-form">
-        {% include "partials/csrf_field.html" %}
-        <input type="hidden" name="start" value="{{ period.start_date }}">
-        <input type="hidden" name="end" value="{{ period.end_date }}">
-        <button type="submit" class="btn btn-small btn-danger">Reopen</button>
-      </form>
+    {% if content.has_pending_ot %}
+    <div class="alert alert-warning"><strong>{{ content.total_pending_ot_hours }}</strong> hours of pending OT in this range.</div>
+    {% endif %}
+    {% if content.period_exactly_closed and content.is_canonical_period %}
+    <div class="alert alert-info">
+      {% if content.payroll_ready %}
+      Ready for payroll. <a href="/admin/payroll" class="btn btn-small btn-primary">Open payroll runs</a>
+      {% elif content.payroll_run_url %}
+      Payroll run: <strong>{{ content.payroll_run_status }}</strong>.
+      <a href="{{ content.payroll_run_url }}" class="btn btn-small">View run</a>
       {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  <div class="form-actions">
+    </div>
+    {% endif %}
+    {% if content.overlapping_closed_periods %}
+    <ul class="closed-period-list">
+      {% for period in content.overlapping_closed_periods %}
+      <li class="closed-period-item">
+        <span class="closed-period-label">
+          <strong>{{ period.start_date }} – {{ period.end_date }}</strong>
+          {% if period.note %}<span class="muted"> — {{ period.note }}</span>{% endif %}
+          {% if period.reopen_blocked %}
+          <span class="muted"> — {{ period.reopen_blocked_reason }}
+            {% if period.payroll_run_url %}<a href="{{ period.payroll_run_url }}">View run</a>{% endif %}
+          </span>
+          {% endif %}
+        </span>
+        {% if period.reopen_blocked %}
+        <button type="button" class="btn btn-small btn-danger" disabled>Reopen</button>
+        {% else %}
+        <form method="post" action="/admin/reports/reopen-period" class="inline-form">
+          {% include "partials/csrf_field.html" %}
+          <input type="hidden" name="start" value="{{ period.start_date }}">
+          <input type="hidden" name="end" value="{{ period.end_date }}">
+          <button type="submit" class="btn btn-small btn-danger">Reopen</button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
     {% if not content.period_exactly_closed %}
-    <form method="post" action="/admin/reports/close-period" class="stack">
+    <form method="post" action="/admin/reports/close-period" class="admin-form-stack">
       {% include "partials/csrf_field.html" %}
       <input type="hidden" name="start" value="{{ content.start_date }}">
       <input type="hidden" name="end" value="{{ content.end_date }}">
-      <label>Note (optional)
-        <input type="text" name="note" placeholder="e.g. Submitted to payroll 2026-06-15">
+      <label class="stack">
+        Note (optional)
+        <input type="text" name="note" placeholder="e.g. Submitted to payroll">
       </label>
       <button type="submit" class="btn btn-danger">Close this period</button>
     </form>
     {% endif %}
-  </div>
-</section>
-
-<section class="page-header">
-  <div class="header-actions">
-    <a href="/admin/reports/export.csv{{ content.export_query }}" class="btn btn-primary">Summary CSV</a>
-    <a href="/admin/reports/export-detail.csv{{ content.export_query }}" class="btn btn-primary">Per-day CSV</a>
-    <a href="/admin/reports/export.xlsx{{ content.export_query }}" class="btn btn-primary">Download Excel</a>
-  </div>
-</section>
-
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th>Code</th>
-        <th>Name</th>
-        <th>Dept</th>
-        <th>Regular Hrs</th>
-        <th>Approved OT</th>
-        <th>Pending OT</th>
-        <th>Payable Hrs</th>
-        <th>Sick</th>
-        <th>Vacation</th>
-        <th>Official</th>
-        <th>Offset</th>
-        <th>No-show</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in content.rows %}
-      <tr>
-        <td>{{ row.employee_code }}</td>
-        <td>{{ row.full_name }}</td>
-        <td>{{ row.department or "—" }}</td>
-        <td>{{ row.regular_hours }}</td>
-        <td>{{ row.approved_ot_hours }}</td>
-        <td>{{ row.pending_ot_hours }}</td>
-        <td><strong>{{ row.payable_hours }}</strong></td>
-        <td>{{ row.sick_leave_days }}</td>
-        <td>{{ row.vacation_days }}</td>
-        <td>{{ row.official_leave_days }}</td>
-        <td>{{ row.offset_days }}</td>
-        <td>{{ row.no_show_days }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="12" class="muted">No rows match the selected filters.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  </section>
 </div>
+
+<section class="data-panel reports-table-panel">
+  <div class="data-panel-header">
+    <h2>Attendance summary</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="reports-table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Name</th>
+          <th>Dept</th>
+          <th>Regular</th>
+          <th>Appr. OT</th>
+          <th>Pending OT</th>
+          <th>Payable</th>
+          <th>Sick</th>
+          <th>Vacation</th>
+          <th>Official</th>
+          <th>Offset</th>
+          <th>LWOP</th>
+          <th>No-show</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in content.rows %}
+        <tr>
+          <td>{{ row.employee_code }}</td>
+          <td>{{ row.full_name }}</td>
+          <td>{{ row.department or "—" }}</td>
+          <td>{{ row.regular_hours }}</td>
+          <td>{{ row.approved_ot_hours }}</td>
+          <td>{{ row.pending_ot_hours }}</td>
+          <td><strong>{{ row.payable_hours }}</strong></td>
+          <td>{{ row.sick_leave_days }}</td>
+          <td>{{ row.vacation_days }}</td>
+          <td>{{ row.official_leave_days }}</td>
+          <td>{{ row.offset_days }}</td>
+          <td>{{ row.lwop_days }}</td>
+          <td>{{ row.no_show_days }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="muted empty-cell">No rows match the selected filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

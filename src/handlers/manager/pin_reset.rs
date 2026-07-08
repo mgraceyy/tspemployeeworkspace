@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     audit::log_action,
@@ -76,28 +76,32 @@ pub async fn approve_pin_reset(
     Form(form): Form<ApprovePinResetForm>,
 ) -> AppResult<Redirect> {
     let is_admin = user.role.is_admin();
-    approve_request(
-        &state.pool,
-        request_id,
-        user.employee_id,
-        is_admin,
-        form.temp_pin.trim(),
-    )
-    .await?;
+    let result: AppResult<()> = async {
+        approve_request(
+            &state.pool,
+            request_id,
+            user.employee_id,
+            is_admin,
+            form.temp_pin.trim(),
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "auth.pin_reset_approved",
-        &format!("Approved PIN reset request {request_id}"),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "auth.pin_reset_approved",
+            &format!("Approved PIN reset request {request_id}"),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
+    redirect_with_flash_from_result(
         &session,
         "/manager/pin-resets",
-        "success",
         "PIN reset approved — employee must change PIN on next login",
+        result,
     )
     .await
 }
@@ -110,28 +114,32 @@ pub async fn deny_pin_reset(
     Form(form): Form<DenyPinResetForm>,
 ) -> AppResult<Redirect> {
     let is_admin = user.role.is_admin();
-    deny_request(
-        &state.pool,
-        request_id,
-        user.employee_id,
-        is_admin,
-        &form.review_note,
-    )
-    .await?;
+    let result: AppResult<()> = async {
+        deny_request(
+            &state.pool,
+            request_id,
+            user.employee_id,
+            is_admin,
+            &form.review_note,
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "auth.pin_reset_denied",
-        &format!("Denied PIN reset request {request_id}"),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "auth.pin_reset_denied",
+            &format!("Denied PIN reset request {request_id}"),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
+    redirect_with_flash_from_result(
         &session,
         "/manager/pin-resets",
-        "success",
         "PIN reset request denied",
+        result,
     )
     .await
 }

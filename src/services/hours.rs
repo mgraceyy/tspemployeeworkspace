@@ -41,23 +41,12 @@ pub fn format_minutes(minutes: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{settings::CompanySettings, PayPeriodType};
+    use crate::models::settings::CompanySettings;
 
     fn test_settings() -> CompanySettings {
         CompanySettings {
             company_name: "Test".into(),
-            break_minutes: 60,
-            ot_threshold_minutes: 480,
-            grace_minutes: 5,
-            pay_period: PayPeriodType::Semimonthly,
-            pay_period_anchor: time::Date::from_calendar_date(2024, time::Month::January, 1)
-                .unwrap(),
-            timezone: "Asia/Manila".into(),
-            ot_requires_approval: true,
-            journal_salary_expense_account: "5100".into(),
-            journal_net_payable_account: "2100".into(),
-            journal_salary_expense_label: "Salaries expense".into(),
-            journal_net_payable_label: "Net pay payable".into(),
+            ..Default::default()
         }
     }
 

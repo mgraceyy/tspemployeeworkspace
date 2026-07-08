@@ -1,51 +1,89 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Employee Profile</h1>
-  <p class="muted">{{ content.employee_code }} · {{ content.full_name }}</p>
-  <p>
-    <a href="/admin/employees/{{ content.employee_id }}">← Account settings</a>
-    · <a href="/admin/employees/{{ content.employee_id }}/compensation">Compensation</a>
-    · <a href="/admin/employees/{{ content.employee_id }}/requirements">Requirements</a>
-  </p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/admin/employees">Employees</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <a href="/admin/employees/{{ content.employee_id }}">{{ content.employee_code }}</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <span>Profile</span>
+    </nav>
+    <h1>{{ content.full_name }}</h1>
+    <p class="page-hero-lead">Contact, employment, leave balances, and payroll identity.</p>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/admin/employees/{{ content.employee_id }}" class="btn">Account</a>
+    <a href="/admin/employees/{{ content.employee_id }}/compensation" class="btn">Compensation</a>
+    <a href="/admin/employees/{{ content.employee_id }}/requirements" class="btn">Requirements</a>
+  </div>
+</header>
 
-<form method="post" action="/admin/employees/{{ content.employee_id }}/profile" class="stack">
+<form method="post" action="/admin/employees/{{ content.employee_id }}/profile" class="admin-profile-form">
   {% include "partials/csrf_field.html" %}
-  <div class="grid-2">
-    <section class="panel">
-      <h2>Contact</h2>
-      <label>Contact Number <input type="text" name="contact_number" value="{{ content.profile.contact_number }}"></label>
-      <label>Personal Email <input type="email" name="personal_email" value="{{ content.profile.personal_email }}"></label>
+
+  <div class="page-layout page-layout-split">
+    <section class="data-panel">
+      <div class="data-panel-header"><h2>Contact</h2></div>
+      <div class="admin-form-stack">
+        <label class="stack">Contact number <input type="text" name="contact_number" value="{{ content.profile.contact_number }}"></label>
+        <label class="stack">Personal email <input type="email" name="personal_email" value="{{ content.profile.personal_email }}"></label>
+      </div>
     </section>
-    <section class="panel">
-      <h2>Personal</h2>
-      <label>Birthdate <input type="date" name="birthdate" value="{{ content.profile.birthdate }}"></label>
-      <label>Address <input type="text" name="address" value="{{ content.profile.address }}"></label>
-      <label>Emergency Contact <input type="text" name="emergency_contact_name" value="{{ content.profile.emergency_contact_name }}"></label>
-      <label>Emergency Phone <input type="text" name="emergency_contact_phone" value="{{ content.profile.emergency_contact_phone }}"></label>
+    <section class="data-panel">
+      <div class="data-panel-header"><h2>Personal</h2></div>
+      <div class="admin-form-stack">
+        <label class="stack">Birthdate <input type="date" name="birthdate" value="{{ content.profile.birthdate }}"></label>
+        <label class="stack">Address <input type="text" name="address" value="{{ content.profile.address }}"></label>
+        <label class="stack">Emergency contact <input type="text" name="emergency_contact_name" value="{{ content.profile.emergency_contact_name }}"></label>
+        <label class="stack">Emergency phone <input type="text" name="emergency_contact_phone" value="{{ content.profile.emergency_contact_phone }}"></label>
+      </div>
     </section>
   </div>
-  <section class="panel">
-    <h2>Employment</h2>
-    <div class="grid-2">
-      <label>Job Title <input type="text" name="job_title" value="{{ content.profile.job_title }}"></label>
-      <label>Department <input type="text" name="department" value="{{ content.profile.department }}"></label>
-      <label>Employment Type <input type="text" name="employment_type" value="{{ content.profile.employment_type }}" placeholder="e.g. Regular, Contract"></label>
-      <label>Date Hired <input type="date" name="date_hired" value="{{ content.profile.date_hired }}"></label>
-      <label>Work Location <input type="text" name="work_location" value="{{ content.profile.work_location }}"></label>
+
+  <section class="data-panel">
+    <div class="data-panel-header"><h2>Employment</h2></div>
+    <div class="admin-form-grid">
+      <label class="stack">Job title <input type="text" name="job_title" value="{{ content.profile.job_title }}"></label>
+      <label class="stack">Department <input type="text" name="department" value="{{ content.profile.department }}"></label>
+      <label class="stack">Employment type <input type="text" name="employment_type" value="{{ content.profile.employment_type }}" placeholder="e.g. Regular"></label>
+      <label class="stack">Date hired <input type="date" name="date_hired" value="{{ content.profile.date_hired }}"></label>
+      <label class="stack">Last day <input type="date" name="date_separated" value="{{ content.profile.date_separated }}"><span class="field-hint">Used to prorate final pay period</span></label>
+      <label class="stack">Work location <input type="text" name="work_location" value="{{ content.profile.work_location }}"></label>
     </div>
   </section>
-  <section class="panel">
-    <h2>Payroll Identity</h2>
-    <p class="hint">Used for bank CSV and government reporting (Phase 6). Admin-only.</p>
-    <div class="grid-2">
-      <label>Bank Account <input type="text" name="bank_account" value="{{ content.profile.bank_account }}" placeholder="Account number"></label>
-      <label>TIN <input type="text" name="tin" value="{{ content.profile.tin }}"></label>
-      <label>SSS Number <input type="text" name="sss_number" value="{{ content.profile.sss_number }}"></label>
-      <label>PhilHealth Number <input type="text" name="philhealth_number" value="{{ content.profile.philhealth_number }}"></label>
+
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <div class="data-panel-title">
+        <h2>Leave balances</h2>
+        <p class="data-panel-desc">Vacation and sick leave days available for requests.</p>
+      </div>
+    </div>
+    <div class="admin-form-grid">
+      <label class="stack">Vacation balance (days) <input type="number" name="vacation_balance" value="{{ content.profile.vacation_balance }}" min="0" step="0.5" required></label>
+      <label class="stack">Sick leave balance (days) <input type="number" name="sick_balance" value="{{ content.profile.sick_balance }}" min="0" step="0.5" required></label>
     </div>
   </section>
-  <button type="submit" class="btn btn-primary">Save Profile</button>
+
+  <section class="data-panel">
+    <div class="data-panel-header">
+      <div class="data-panel-title">
+        <h2>Payroll identity</h2>
+        <p class="data-panel-desc">Used for bank CSV and government reporting.</p>
+      </div>
+    </div>
+    <div class="admin-form-grid">
+      <label class="stack">Bank account <input type="text" name="bank_account" value="{{ content.profile.bank_account }}" placeholder="Account number"></label>
+      <label class="stack">TIN <input type="text" name="tin" value="{{ content.profile.tin }}"></label>
+      <label class="stack">SSS number <input type="text" name="sss_number" value="{{ content.profile.sss_number }}"></label>
+      <label class="stack">PhilHealth number <input type="text" name="philhealth_number" value="{{ content.profile.philhealth_number }}"></label>
+    </div>
+  </section>
+
+  <div class="admin-form-footer">
+    <button type="submit" class="btn btn-primary">Save profile</button>
+  </div>
 </form>
 {% endblock %}

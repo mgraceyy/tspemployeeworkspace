@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     requirements::{
@@ -72,66 +72,65 @@ pub async fn submit_my_requirement(
     Path(requirement_id): Path<Uuid>,
     mut multipart: Multipart,
 ) -> AppResult<Redirect> {
-    let mut note = None;
-    let mut upload = None;
+    let result: AppResult<()> = async {
+        let mut note = None;
+        let mut upload = None;
 
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::bad_request(format!("Invalid upload form: {e}")))?
-    {
-        match field.name() {
-            Some("note") => {
-                note = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|e| AppError::bad_request(format!("Invalid note: {e}")))?,
-                );
-            }
-            Some("file") => {
-                let file_name = field
-                    .file_name()
-                    .map(str::to_string)
-                    .filter(|name| !name.is_empty());
-                let mime_type = field
-                    .content_type()
-                    .map(|mime| mime.to_string())
-                    .unwrap_or_else(|| "application/octet-stream".to_string());
-                let bytes = field.bytes().await.map_err(|e| {
-                    AppError::bad_request(format!("Could not read uploaded file: {e}"))
-                })?;
-                if !bytes.is_empty() {
-                    let original_name = file_name.unwrap_or_else(|| "upload.bin".to_string());
-                    upload = Some((original_name, mime_type, bytes));
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| AppError::bad_request(format!("Invalid upload form: {e}")))?
+        {
+            match field.name() {
+                Some("note") => {
+                    note = Some(
+                        field
+                            .text()
+                            .await
+                            .map_err(|e| AppError::bad_request(format!("Invalid note: {e}")))?,
+                    );
                 }
+                Some("file") => {
+                    let file_name = field
+                        .file_name()
+                        .map(str::to_string)
+                        .filter(|name| !name.is_empty());
+                    let mime_type = field
+                        .content_type()
+                        .map(|mime| mime.to_string())
+                        .unwrap_or_else(|| "application/octet-stream".to_string());
+                    let bytes = field.bytes().await.map_err(|e| {
+                        AppError::bad_request(format!("Could not read uploaded file: {e}"))
+                    })?;
+                    if !bytes.is_empty() {
+                        let original_name = file_name.unwrap_or_else(|| "upload.bin".to_string());
+                        upload = Some((original_name, mime_type, bytes));
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
+
+        let upload_ref = upload
+            .as_ref()
+            .map(|(name, mime, bytes)| (name.as_str(), mime.as_str(), bytes.as_ref() as &[u8]));
+
+        submit_requirement(
+            &state.pool,
+            &state.upload_dir,
+            state.max_upload_bytes,
+            user.employee_id,
+            requirement_id,
+            note.as_deref(),
+            upload_ref,
+        )
+        .await?;
+        Ok(())
     }
+    .await;
 
-    let upload_ref = upload
-        .as_ref()
-        .map(|(name, mime, bytes)| (name.as_str(), mime.as_str(), bytes.as_ref() as &[u8]));
-
-    submit_requirement(
-        &state.pool,
-        &state.upload_dir,
-        state.max_upload_bytes,
-        user.employee_id,
-        requirement_id,
-        note.as_deref(),
-        upload_ref,
-    )
-    .await?;
-
-    redirect_with_flash(
-        &session,
-        "/me/requirements",
-        "success",
-        "Requirement submitted",
-    )
-    .await
+    redirect_with_flash_from_result(&session, "/me/requirements", "Requirement submitted", result)
+        .await
 }
 
 pub async fn download_my_requirement_file(

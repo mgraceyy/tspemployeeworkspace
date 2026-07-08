@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result_urls;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::models::RequirementStatus;
 use crate::services::{
@@ -151,55 +151,63 @@ pub async fn manager_review_employee_requirement(
     Path((employee_id, requirement_id)): Path<(Uuid, Uuid)>,
     Form(form): Form<ReviewRequirementForm>,
 ) -> AppResult<Redirect> {
-    assert_can_manage(
-        &state.pool,
-        user.employee_id,
-        employee_id,
-        user.role.is_admin(),
-    )
-    .await?;
-
-    let employee = find_by_id(&state.pool, employee_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
     let approve = form.action == "approve";
+    let success_message = if approve {
+        "Requirement approved"
+    } else {
+        "Requirement rejected"
+    };
+    let requirements_url = format!("/manager/team/{employee_id}/requirements");
 
-    review_requirement(
-        &state.pool,
-        employee_id,
-        requirement_id,
-        user.employee_id,
-        approve,
-        form.note.as_deref(),
-    )
-    .await?;
+    let result: AppResult<()> = async {
+        assert_can_manage(
+            &state.pool,
+            user.employee_id,
+            employee_id,
+            user.role.is_admin(),
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        if approve {
-            "requirements.approved"
-        } else {
-            "requirements.rejected"
-        },
-        &format!(
-            "{} requirement for {} ({})",
-            if approve { "Approved" } else { "Rejected" },
-            employee.full_name,
-            employee.employee_code
-        ),
-    )
-    .await?;
+        let employee = find_by_id(&state.pool, employee_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
 
-    redirect_with_flash(
+        review_requirement(
+            &state.pool,
+            employee_id,
+            requirement_id,
+            user.employee_id,
+            approve,
+            form.note.as_deref(),
+        )
+        .await?;
+
+        log_action(
+            &state.pool,
+            user.employee_id,
+            if approve {
+                "requirements.approved"
+            } else {
+                "requirements.rejected"
+            },
+            &format!(
+                "{} requirement for {} ({})",
+                if approve { "Approved" } else { "Rejected" },
+                employee.full_name,
+                employee.employee_code
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result_urls(
         &session,
-        &format!("/manager/team/{employee_id}/requirements"),
-        "success",
-        if approve {
-            "Requirement approved"
-        } else {
-            "Requirement rejected"
-        },
+        &requirements_url,
+        &requirements_url,
+        success_message,
+        result,
     )
     .await
 }

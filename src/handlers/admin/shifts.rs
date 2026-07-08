@@ -10,28 +10,35 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
-use crate::handlers::render::{render_page, HtmlPage};
-use crate::services::{
-    employees::list_all,
-    settings::get_settings,
-    shifts::{list_for_employee, upsert_shift},
-};
+use crate::handlers::flash::redirect_with_flash_from_result_urls;
+use crate::services::shifts::upsert_shift;
+use crate::models::ShiftTemplate;
 use crate::state::AppState;
 
 use super::common::parse_time;
 
-pub async fn shifts_page(
-    State(state): State<AppState>,
-    session: Session,
-    AuthUser(user): AuthUser,
-    Path(employee_id): Path<Uuid>,
-) -> AppResult<HtmlPage> {
-    let settings = get_settings(&state.pool).await?;
-    let employees = list_all(&state.pool).await?;
-    let shifts = list_for_employee(&state.pool, employee_id).await?;
-    let selected = employees.iter().find(|e| e.id == employee_id);
-    let day_rows: Vec<_> = [
+pub(crate) fn shift_time_defaults(shifts: &[ShiftTemplate]) -> (String, String) {
+    for day in [1i16, 2, 3, 4, 5, 0, 6] {
+        if let Some(shift) = shifts.iter().find(|s| s.day_of_week == day) {
+            return (
+                format!(
+                    "{:02}:{:02}",
+                    shift.start_time.hour(),
+                    shift.start_time.minute()
+                ),
+                format!(
+                    "{:02}:{:02}",
+                    shift.end_time.hour(),
+                    shift.end_time.minute()
+                ),
+            );
+        }
+    }
+    ("08:00".into(), "17:00".into())
+}
+
+pub(crate) fn build_shift_day_rows(shifts: &[ShiftTemplate]) -> Vec<minijinja::value::Value> {
+    [
         (0, "Sunday"),
         (1, "Monday"),
         (2, "Tuesday"),
@@ -46,27 +53,18 @@ pub async fn shifts_page(
         context! {
             day => day,
             name => name,
+            short_name => &name[..3],
             start_time => existing.map(|s| format!("{:02}:{:02}", s.start_time.hour(), s.start_time.minute())).unwrap_or_else(|| "08:00".into()),
             end_time => existing.map(|s| format!("{:02}:{:02}", s.end_time.hour(), s.end_time.minute())).unwrap_or_else(|| "17:00".into()),
         }
     })
-    .collect();
+    .collect()
+}
 
-    render_page(
-        &state,
-        &session,
-        Some(user),
-        &settings.company_name,
-        "Shift Schedules",
-        "admin/shifts.html",
-        context! {
-            employees => employees,
-            selected => selected,
-            day_rows => day_rows,
-            message => None::<String>,
-        },
-    )
-    .await
+pub async fn shifts_page(
+    Path(employee_id): Path<Uuid>,
+) -> Redirect {
+    Redirect::to(&format!("/admin/employees/{employee_id}"))
 }
 
 #[derive(Deserialize)]
@@ -83,16 +81,21 @@ pub async fn save_shift(
     AuthUser(_user): AuthUser,
     Form(form): Form<ShiftForm>,
 ) -> AppResult<Redirect> {
-    let start = parse_time(&form.start_time)?;
-    let end = parse_time(&form.end_time)?;
+    let employee_url = format!("/admin/employees/{}", form.employee_id);
+    let result: AppResult<()> = async {
+        let start = parse_time(&form.start_time)?;
+        let end = parse_time(&form.end_time)?;
+        upsert_shift(&state.pool, form.employee_id, form.day_of_week, start, end).await?;
+        Ok(())
+    }
+    .await;
 
-    upsert_shift(&state.pool, form.employee_id, form.day_of_week, start, end).await?;
-
-    redirect_with_flash(
+    redirect_with_flash_from_result_urls(
         &session,
-        &format!("/admin/shifts/{}", form.employee_id),
-        "success",
+        &employee_url,
+        &employee_url,
         "Shift schedule saved",
+        result,
     )
     .await
 }

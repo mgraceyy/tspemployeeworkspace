@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::services::{
     audit::log_action,
     ot::{entry_audit_label, review_overtime},
@@ -30,31 +30,33 @@ pub async fn review_ot(
     Form(form): Form<OtReviewForm>,
 ) -> AppResult<Redirect> {
     let approve = form.action == "approve";
-    review_overtime(
-        &state.pool,
-        entry_id,
-        user.employee_id,
-        approve,
-        form.note.filter(|n| !n.trim().is_empty()),
-        user.role.is_admin(),
-    )
-    .await?;
-
-    let label = entry_audit_label(&state.pool, entry_id).await?;
-    let (action, summary, flash_message) = if approve {
-        (
-            "ot.approved",
-            format!("Approved overtime for {label}"),
-            "Overtime approved",
-        )
+    let flash_message = if approve {
+        "Overtime approved"
     } else {
-        (
-            "ot.rejected",
-            format!("Rejected overtime for {label}"),
-            "Overtime rejected",
-        )
+        "Overtime rejected"
     };
-    log_action(&state.pool, user.employee_id, action, &summary).await?;
 
-    redirect_with_flash(&session, "/manager", "success", flash_message).await
+    let result: AppResult<()> = async {
+        review_overtime(
+            &state.pool,
+            entry_id,
+            user.employee_id,
+            approve,
+            form.note.filter(|n| !n.trim().is_empty()),
+            user.role.is_admin(),
+        )
+        .await?;
+
+        let label = entry_audit_label(&state.pool, entry_id).await?;
+        let (action, summary) = if approve {
+            ("ot.approved", format!("Approved overtime for {label}"))
+        } else {
+            ("ot.rejected", format!("Rejected overtime for {label}"))
+        };
+        log_action(&state.pool, user.employee_id, action, &summary).await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result(&session, "/manager", flash_message, result).await
 }

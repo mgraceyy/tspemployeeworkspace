@@ -12,11 +12,13 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::{redirect_with_flash_from_result, redirect_with_flash_from_result_urls};
 use crate::handlers::render::{render_page, HtmlPage};
+use crate::models::LeaveRequestType;
 use crate::services::{
     audit::log_action,
     employees::bump_session_version,
+    leave_balances::set_balance,
     pin_reset::{cancel_own_request, create_request, get_pending_for_employee},
     profile::{
         get_profile, get_work_profile, set_photo_path, update_admin, update_self_service,
@@ -47,11 +49,14 @@ pub struct AdminProfileForm {
     department: Option<String>,
     employment_type: Option<String>,
     date_hired: Option<String>,
+    date_separated: Option<String>,
     work_location: Option<String>,
     bank_account: Option<String>,
     tin: Option<String>,
     sss_number: Option<String>,
     philhealth_number: Option<String>,
+    vacation_balance: f64,
+    sick_balance: f64,
 }
 
 #[derive(Deserialize)]
@@ -59,10 +64,12 @@ pub struct PinResetReasonForm {
     reason: Option<String>,
 }
 
-fn profile_context(
+pub(crate) fn profile_context(
     profile: &crate::models::EmployeeProfile,
     employee_code: &str,
     full_name: &str,
+    vacation_balance: &str,
+    sick_balance: &str,
 ) -> minijinja::value::Value {
     context! {
         employee_code => employee_code,
@@ -77,11 +84,14 @@ fn profile_context(
         department => profile.department.clone().unwrap_or_default(),
         employment_type => profile.employment_type.clone().unwrap_or_default(),
         date_hired => profile.date_hired.map(format_date).unwrap_or_default(),
+        date_separated => profile.date_separated.map(format_date).unwrap_or_default(),
         work_location => profile.work_location.clone().unwrap_or_default(),
         bank_account => profile.bank_account.clone().unwrap_or_default(),
         tin => profile.tin.clone().unwrap_or_default(),
         sss_number => profile.sss_number.clone().unwrap_or_default(),
         philhealth_number => profile.philhealth_number.clone().unwrap_or_default(),
+        vacation_balance => vacation_balance,
+        sick_balance => sick_balance,
         has_photo => profile.photo_path.is_some(),
     }
 }
@@ -96,7 +106,7 @@ pub async fn my_profile(
     let pending_pin_reset = get_pending_for_employee(&state.pool, user.employee_id).await?;
 
     let body = context! {
-        profile => profile_context(&profile, &user.employee_code, &user.full_name),
+        profile => profile_context(&profile, &user.employee_code, &user.full_name, "0", "0"),
         pending_pin_reset => pending_pin_reset.is_some(),
         pending_pin_reset_id => pending_pin_reset.as_ref().map(|r| r.id),
     };
@@ -119,23 +129,27 @@ pub async fn update_my_profile(
     AuthUser(user): AuthUser,
     Form(form): Form<SelfProfileForm>,
 ) -> AppResult<Redirect> {
-    update_self_service(
-        &state.pool,
-        user.employee_id,
-        form.contact_number.as_deref(),
-        form.personal_email.as_deref(),
-    )
-    .await?;
+    let result: AppResult<()> = async {
+        update_self_service(
+            &state.pool,
+            user.employee_id,
+            form.contact_number.as_deref(),
+            form.personal_email.as_deref(),
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "profile.self_updated",
-        "Updated contact number and/or personal email",
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "profile.self_updated",
+            "Updated contact number and/or personal email",
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(&session, "/me/profile", "success", "Profile updated").await
+    redirect_with_flash_from_result(&session, "/me/profile", "Profile updated", result).await
 }
 
 pub async fn upload_my_profile_photo(
@@ -165,34 +179,38 @@ pub async fn upload_my_profile_photo(
         }
     }
 
-    let bytes = bytes.ok_or_else(|| AppError::bad_request("Photo file is required"))?;
-    let stored = store_profile_photo(
-        &state.upload_dir,
-        user.employee_id,
-        file_name.as_deref().unwrap_or("photo.jpg"),
-        mime.as_deref().unwrap_or("image/jpeg"),
-        &bytes,
-        state.max_upload_bytes,
-    )
-    .await?;
+    let result: AppResult<()> = async {
+        let bytes = bytes.ok_or_else(|| AppError::bad_request("Photo file is required"))?;
+        let stored = store_profile_photo(
+            &state.upload_dir,
+            user.employee_id,
+            file_name.as_deref().unwrap_or("photo.jpg"),
+            mime.as_deref().unwrap_or("image/jpeg"),
+            &bytes,
+            state.max_upload_bytes,
+        )
+        .await?;
 
-    set_photo_path(
-        &state.pool,
-        user.employee_id,
-        user.employee_id,
-        Some(&stored.stored_path),
-    )
-    .await?;
+        set_photo_path(
+            &state.pool,
+            user.employee_id,
+            user.employee_id,
+            Some(&stored.stored_path),
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "profile.photo_updated",
-        "Updated profile photo",
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "profile.photo_updated",
+            "Updated profile photo",
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(&session, "/me/profile", "success", "Profile photo updated").await
+    redirect_with_flash_from_result(&session, "/me/profile", "Profile photo updated", result).await
 }
 
 pub async fn my_profile_photo(
@@ -264,21 +282,25 @@ pub async fn request_pin_reset(
     AuthUser(user): AuthUser,
     Form(form): Form<PinResetReasonForm>,
 ) -> AppResult<Redirect> {
-    create_request(&state.pool, user.employee_id, form.reason.as_deref()).await?;
+    let result: AppResult<()> = async {
+        create_request(&state.pool, user.employee_id, form.reason.as_deref()).await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "auth.pin_reset_requested",
-        "Requested PIN reset",
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "auth.pin_reset_requested",
+            "Requested PIN reset",
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(
+    redirect_with_flash_from_result(
         &session,
         "/me/profile",
-        "success",
         "PIN reset request submitted — your manager or admin will review it",
+        result,
     )
     .await
 }
@@ -289,43 +311,20 @@ pub async fn cancel_pin_reset(
     AuthUser(user): AuthUser,
     Path(request_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    cancel_own_request(&state.pool, user.employee_id, request_id).await?;
-    redirect_with_flash(
+    let result = cancel_own_request(&state.pool, user.employee_id, request_id)
+        .await
+        .map(|_| ());
+    redirect_with_flash_from_result(
         &session,
         "/me/profile",
-        "success",
         "PIN reset request cancelled",
+        result,
     )
     .await
 }
 
-pub async fn admin_profile_page(
-    State(state): State<AppState>,
-    session: Session,
-    AuthUser(user): AuthUser,
-    Path(employee_id): Path<Uuid>,
-) -> AppResult<HtmlPage> {
-    let settings = get_settings(&state.pool).await?;
-    let employee = crate::services::employees::find_by_id(&state.pool, employee_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let profile = get_profile(&state.pool, employee_id).await?;
-
-    render_page(
-        &state,
-        &session,
-        Some(user),
-        &settings.company_name,
-        "Employee Profile",
-        "admin/employee_profile.html",
-        context! {
-            employee_id => employee_id,
-            employee_code => employee.employee_code,
-            full_name => employee.full_name,
-            profile => profile_context(&profile, &employee.employee_code, &employee.full_name),
-        },
-    )
-    .await
+pub async fn admin_profile_page(Path(employee_id): Path<Uuid>) -> Redirect {
+    Redirect::to(&format!("/admin/employees/{employee_id}"))
 }
 
 pub async fn admin_update_profile(
@@ -335,65 +334,94 @@ pub async fn admin_update_profile(
     Path(employee_id): Path<Uuid>,
     Form(form): Form<AdminProfileForm>,
 ) -> AppResult<Redirect> {
-    let birthdate = form
-        .birthdate
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .map(parse_date)
-        .transpose()
-        .map_err(AppError::bad_request)?;
-    let date_hired = form
-        .date_hired
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .map(parse_date)
-        .transpose()
-        .map_err(AppError::bad_request)?;
+    let employee_url = format!("/admin/employees/{employee_id}");
+    let result: AppResult<()> = async {
+        let birthdate = form
+            .birthdate
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(parse_date)
+            .transpose()
+            .map_err(AppError::bad_request)?;
+        let date_hired = form
+            .date_hired
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(parse_date)
+            .transpose()
+            .map_err(AppError::bad_request)?;
+        let date_separated = form
+            .date_separated
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(parse_date)
+            .transpose()
+            .map_err(AppError::bad_request)?;
 
-    let employee = crate::services::employees::find_by_id(&state.pool, employee_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
+        let employee = crate::services::employees::find_by_id(&state.pool, employee_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
 
-    update_admin(
-        &state.pool,
-        employee_id,
-        user.employee_id,
-        AdminProfileInput {
-            contact_number: form.contact_number.as_deref(),
-            personal_email: form.personal_email.as_deref(),
-            birthdate,
-            address: form.address.as_deref(),
-            emergency_contact_name: form.emergency_contact_name.as_deref(),
-            emergency_contact_phone: form.emergency_contact_phone.as_deref(),
-            job_title: form.job_title.as_deref(),
-            department: form.department.as_deref(),
-            employment_type: form.employment_type.as_deref(),
-            date_hired,
-            work_location: form.work_location.as_deref(),
-            bank_account: form.bank_account.as_deref(),
-            tin: form.tin.as_deref(),
-            sss_number: form.sss_number.as_deref(),
-            philhealth_number: form.philhealth_number.as_deref(),
-        },
-    )
-    .await?;
+        update_admin(
+            &state.pool,
+            employee_id,
+            user.employee_id,
+            AdminProfileInput {
+                contact_number: form.contact_number.as_deref(),
+                personal_email: form.personal_email.as_deref(),
+                birthdate,
+                address: form.address.as_deref(),
+                emergency_contact_name: form.emergency_contact_name.as_deref(),
+                emergency_contact_phone: form.emergency_contact_phone.as_deref(),
+                job_title: form.job_title.as_deref(),
+                department: form.department.as_deref(),
+                employment_type: form.employment_type.as_deref(),
+                date_hired,
+                date_separated,
+                work_location: form.work_location.as_deref(),
+                bank_account: form.bank_account.as_deref(),
+                tin: form.tin.as_deref(),
+                sss_number: form.sss_number.as_deref(),
+                philhealth_number: form.philhealth_number.as_deref(),
+            },
+        )
+        .await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "profile.updated",
-        &format!(
-            "Updated profile for {} ({})",
-            employee.full_name, employee.employee_code
-        ),
-    )
-    .await?;
+        set_balance(
+            &state.pool,
+            employee_id,
+            LeaveRequestType::Vacation,
+            form.vacation_balance,
+        )
+        .await?;
+        set_balance(
+            &state.pool,
+            employee_id,
+            LeaveRequestType::SickLeave,
+            form.sick_balance,
+        )
+        .await?;
 
-    redirect_with_flash(
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "profile.updated",
+            &format!(
+                "Updated profile for {} ({})",
+                employee.full_name, employee.employee_code
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result_urls(
         &session,
-        &format!("/admin/employees/{employee_id}/profile"),
-        "success",
+        &employee_url,
+        &employee_url,
         "Profile saved",
+        result,
     )
     .await
 }

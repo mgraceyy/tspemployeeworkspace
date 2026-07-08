@@ -24,6 +24,7 @@ pub struct PayrollRow {
     pub vacation_days: i64,
     pub official_leave_days: i64,
     pub offset_days: i64,
+    pub lwop_days: i64,
     pub no_show_days: i64,
 }
 
@@ -63,13 +64,19 @@ pub async fn payroll_summary(
                 COALESCE(SUM(CASE WHEN te.attendance = 'vacation' THEN 1 ELSE 0 END), 0) AS vacation_days,
                 COALESCE(SUM(CASE WHEN te.attendance = 'official_leave' THEN 1 ELSE 0 END), 0) AS official_leave_days,
                 COALESCE(SUM(CASE WHEN te.attendance = 'offset' THEN 1 ELSE 0 END), 0) AS offset_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'lwop' THEN 1 ELSE 0 END), 0) AS lwop_days,
                 COALESCE(SUM(CASE WHEN te.attendance = 'no_show' THEN 1 ELSE 0 END), 0) AS no_show_days
          FROM employees e
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
          LEFT JOIN time_entries te
            ON te.employee_id = e.id
           AND te.work_date BETWEEN $1 AND $2
-         WHERE e.is_active = TRUE
+         WHERE (p.date_hired IS NULL OR p.date_hired <= $2)
+           AND (p.date_separated IS NULL OR p.date_separated >= $1)
+           AND (
+             e.is_active = TRUE
+             OR (p.date_separated IS NOT NULL AND p.date_separated >= $1)
+           )
            AND ($3::text IS NULL OR p.department = $3)
            AND ($4::user_role IS NULL OR e.role = $4)
            AND ($5::uuid IS NULL OR e.id = $5)
@@ -114,7 +121,12 @@ pub async fn payroll_detail(
          JOIN employees e ON e.id = te.employee_id
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
          WHERE te.work_date BETWEEN $1 AND $2
-           AND e.is_active = TRUE
+           AND (p.date_hired IS NULL OR p.date_hired <= $2)
+           AND (p.date_separated IS NULL OR p.date_separated >= $1)
+           AND (
+             e.is_active = TRUE
+             OR (p.date_separated IS NOT NULL AND p.date_separated >= $1)
+           )
            AND ($3::text IS NULL OR p.department = $3)
            AND ($4::user_role IS NULL OR e.role = $4)
            AND ($5::uuid IS NULL OR e.id = $5)

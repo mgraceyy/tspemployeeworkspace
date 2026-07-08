@@ -9,7 +9,7 @@ pub async fn add_security_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
 
-    let csp = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    let csp = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     if let Ok(value) = HeaderValue::from_str(csp) {
         headers.insert(header::CONTENT_SECURITY_POLICY, value);
     }

@@ -76,10 +76,14 @@ pub async fn build_finalized_run_csv(
             "Regular Minutes".to_string(),
             "Approved OT Minutes".to_string(),
             "No-show Days".to_string(),
+            "LWOP Days".to_string(),
+            "Employed Days".to_string(),
+            "Period Calendar Days".to_string(),
             "Base Pay".to_string(),
             "Allowances".to_string(),
             "No-show Deduction".to_string(),
             "OT Pay".to_string(),
+            "Premium Pay".to_string(),
             "Gross Pay".to_string(),
         ];
         for dtype in &types {
@@ -100,10 +104,18 @@ pub async fn build_finalized_run_csv(
                 line.regular_minutes.to_string(),
                 line.approved_ot_minutes.to_string(),
                 line.no_show_days.to_string(),
+                line.lwop_days.to_string(),
+                line.employed_days
+                    .map(|d| d.to_string())
+                    .unwrap_or_default(),
+                line.period_calendar_days
+                    .map(|d| d.to_string())
+                    .unwrap_or_default(),
                 format_salary_cents(line.base_pay_cents),
                 format_salary_cents(line.allowance_cents),
                 format_salary_cents(line.no_show_deduction_cents),
                 format_salary_cents(line.ot_pay_cents),
+                format_salary_cents(line.premium_pay_cents),
                 format_salary_cents(line.gross_pay_cents),
             ];
             for dtype in &types {

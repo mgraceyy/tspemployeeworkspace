@@ -256,17 +256,8 @@ mod tests {
     fn assert_canonical_pay_period_accepts_full_semimonthly_range() {
         let settings = CompanySettings {
             company_name: "Test".into(),
-            break_minutes: 60,
-            ot_threshold_minutes: 480,
-            grace_minutes: 5,
-            pay_period: PayPeriodType::Semimonthly,
             pay_period_anchor: anchor(),
-            timezone: "Asia/Manila".into(),
-            ot_requires_approval: true,
-            journal_salary_expense_account: "5100".into(),
-            journal_net_payable_account: "2100".into(),
-            journal_salary_expense_label: "Salaries expense".into(),
-            journal_net_payable_label: "Net pay payable".into(),
+            ..Default::default()
         };
         let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
         let end = Date::from_calendar_date(2026, Month::June, 15).unwrap();
@@ -277,17 +268,8 @@ mod tests {
     fn assert_canonical_pay_period_rejects_partial_range() {
         let settings = CompanySettings {
             company_name: "Test".into(),
-            break_minutes: 60,
-            ot_threshold_minutes: 480,
-            grace_minutes: 5,
-            pay_period: PayPeriodType::Semimonthly,
             pay_period_anchor: anchor(),
-            timezone: "Asia/Manila".into(),
-            ot_requires_approval: true,
-            journal_salary_expense_account: "5100".into(),
-            journal_net_payable_account: "2100".into(),
-            journal_salary_expense_label: "Salaries expense".into(),
-            journal_net_payable_label: "Net pay payable".into(),
+            ..Default::default()
         };
         let start = Date::from_calendar_date(2026, Month::June, 1).unwrap();
         let end = Date::from_calendar_date(2026, Month::June, 10).unwrap();
@@ -298,17 +280,8 @@ mod tests {
     fn resolve_custom_date_range() {
         let settings = CompanySettings {
             company_name: "Test".into(),
-            break_minutes: 60,
-            ot_threshold_minutes: 480,
-            grace_minutes: 5,
-            pay_period: PayPeriodType::Semimonthly,
             pay_period_anchor: anchor(),
-            timezone: "Asia/Manila".into(),
-            ot_requires_approval: true,
-            journal_salary_expense_account: "5100".into(),
-            journal_net_payable_account: "2100".into(),
-            journal_salary_expense_label: "Salaries expense".into(),
-            journal_net_payable_label: "Net pay payable".into(),
+            ..Default::default()
         };
         let today = Date::from_calendar_date(2026, Month::June, 17).unwrap();
         let period =

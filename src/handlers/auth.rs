@@ -4,7 +4,9 @@ use serde::Deserialize;
 use tower_sessions::Session;
 
 use crate::auth::post_limiter::ClientIp;
-use crate::auth::{clear_session, set_session, sync_session_with_db, verify_pin, UserSession};
+use crate::auth::{
+    clear_session, home_path_for_role, set_session, sync_session_with_db, verify_pin, UserSession,
+};
 use crate::error::{AppError, AppResult};
 use crate::handlers::flash::redirect_with_flash;
 use crate::handlers::render::{render_page, PageOrRedirect};
@@ -33,7 +35,7 @@ pub async fn login_page(
         let target = if user.must_change_pin {
             "/change-pin"
         } else {
-            "/"
+            home_path_for_role(user.role)
         };
         return Ok(PageOrRedirect::Redirect(Redirect::to(target)));
     }
@@ -144,7 +146,7 @@ pub async fn login_submit(
     let target = if employee.must_change_pin {
         "/change-pin"
     } else {
-        "/"
+        home_path_for_role(employee.role)
     };
     Ok(PageOrRedirect::Redirect(Redirect::to(target)))
 }
@@ -289,8 +291,9 @@ pub async fn change_pin_submit(
     )
     .await?;
 
+    let home = home_path_for_role(user.role);
     let redirect =
-        redirect_with_flash(&session, "/", "success", "PIN updated successfully").await?;
+        redirect_with_flash(&session, home, "success", "PIN updated successfully").await?;
     Ok(PageOrRedirect::Redirect(redirect))
 }
 

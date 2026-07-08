@@ -41,7 +41,7 @@
         <td>{{ entry.ot }}</td>
         <td><span class="badge badge-{{ entry.ot_status }}">{{ entry.ot_status }}</span></td>
         <td>{{ entry.attendance }}</td>
-        <td>{% if entry.id != "" %}<a href="/manager/correct/{{ entry.id }}">Correct</a>{% else %}—{% endif %}</td>
+        <td>{% if entry.id != "" %}<a href="/manager/correct/{{ entry.id }}" class="btn btn-small">Edit</a>{% else %}—{% endif %}</td>
       </tr>
       {% else %}
       <tr><td colspan="8" class="muted">No entries in this date range.</td></tr>

@@ -6,8 +6,8 @@ use axum::{
 use tower_sessions::{service::CookieController, SessionManagerLayer, SessionStore};
 
 use crate::auth::{
-    csrf::validate_post, inject_active_session, post_limiter::limit_post_requests,
-    require_admin_role, require_manager_role,
+    block_admin_employee_routes, csrf::validate_post, inject_active_session,
+    post_limiter::limit_post_requests, require_admin_role, require_manager_role,
 };
 use crate::handlers::{
     admin, auth, employee, eod, health, leave, manager, metrics, notifications, payslips, profile,
@@ -110,6 +110,7 @@ where
             "/notifications/dismiss-all",
             post(notifications::dismiss_all_notifications),
         )
+        .route_layer(middleware::from_fn(block_admin_employee_routes))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             inject_active_session,
@@ -156,6 +157,10 @@ where
             post(leave::review_leave_request),
         )
         .route(
+            "/manager/leave/{request_id}/revoke",
+            post(leave::revoke_leave_request),
+        )
+        .route(
             "/manager/requirements",
             get(requirements::manager_requirements_queue),
         )
@@ -178,13 +183,11 @@ where
         ));
 
     let admin_routes = Router::new()
+        .route("/admin", get(admin::admin_home))
+        .route("/admin/", get(admin::admin_home))
         .route(
             "/admin/employees",
             get(admin::employees_page).post(admin::create_employee_action),
-        )
-        .route(
-            "/admin/employees/bulk-department",
-            post(admin::bulk_assign_department_action),
         )
         .route(
             "/admin/employees/{employee_id}",
@@ -201,14 +204,6 @@ where
         .route(
             "/admin/employees/{employee_id}/compensation/deduction-defaults",
             post(admin::save_deduction_defaults_action),
-        )
-        .route(
-            "/admin/compensation/import",
-            get(admin::compensation_import_page).post(admin::compensation_import_preview_action),
-        )
-        .route(
-            "/admin/compensation/import/apply",
-            post(admin::compensation_import_apply_action),
         )
         .route(
             "/admin/deduction-types",
@@ -277,6 +272,10 @@ where
         .route(
             "/admin/payroll/{run_id}/finalize",
             post(admin::finalize_payroll_run_action),
+        )
+        .route(
+            "/admin/payroll/{run_id}/recalculate-government-deductions",
+            post(admin::recalculate_government_deductions_action),
         )
         .route(
             "/admin/payroll/{run_id}/export.csv",

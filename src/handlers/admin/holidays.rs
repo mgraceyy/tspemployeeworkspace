@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     audit::log_action,
@@ -63,22 +63,26 @@ pub async fn add_holiday_action(
     AuthUser(user): AuthUser,
     Form(form): Form<HolidayForm>,
 ) -> AppResult<Redirect> {
-    let holiday_date = parse_date(&form.holiday_date).map_err(AppError::bad_request)?;
-    let created = add_holiday(&state.pool, holiday_date, &form.name).await?;
+    let result: AppResult<()> = async {
+        let holiday_date = parse_date(&form.holiday_date).map_err(AppError::bad_request)?;
+        let created = add_holiday(&state.pool, holiday_date, &form.name).await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "holidays.added",
-        &format!(
-            "Added holiday {} on {}",
-            created.name,
-            format_date(created.holiday_date)
-        ),
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "holidays.added",
+            &format!(
+                "Added holiday {} on {}",
+                created.name,
+                format_date(created.holiday_date)
+            ),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(&session, "/admin/holidays", "success", "Holiday added").await
+    redirect_with_flash_from_result(&session, "/admin/holidays", "Holiday added", result).await
 }
 
 pub async fn delete_holiday_action(
@@ -87,15 +91,19 @@ pub async fn delete_holiday_action(
     AuthUser(user): AuthUser,
     Path(holiday_id): Path<Uuid>,
 ) -> AppResult<Redirect> {
-    delete_holiday(&state.pool, holiday_id).await?;
+    let result: AppResult<()> = async {
+        delete_holiday(&state.pool, holiday_id).await?;
 
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "holidays.deleted",
-        "Removed company holiday",
-    )
-    .await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "holidays.deleted",
+            "Removed company holiday",
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
 
-    redirect_with_flash(&session, "/admin/holidays", "success", "Holiday removed").await
+    redirect_with_flash_from_result(&session, "/admin/holidays", "Holiday removed", result).await
 }

@@ -5,7 +5,7 @@ use tower_sessions::Session;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     notifications::{dismiss, dismiss_all, list_for_user},
@@ -61,14 +61,11 @@ pub async fn dismiss_notification(
     AuthUser(user): AuthUser,
     Form(form): Form<DismissNotificationForm>,
 ) -> AppResult<Redirect> {
-    dismiss(&state.pool, user.employee_id, &form.key).await?;
-    redirect_with_flash(
-        &session,
-        "/notifications",
-        "success",
-        "Notification dismissed",
-    )
-    .await
+    let result = dismiss(&state.pool, user.employee_id, &form.key)
+        .await
+        .map(|_| ());
+    redirect_with_flash_from_result(&session, "/notifications", "Notification dismissed", result)
+        .await
 }
 
 #[derive(Deserialize)]
@@ -82,12 +79,14 @@ pub async fn dismiss_all_notifications(
     AuthUser(user): AuthUser,
     Form(form): Form<DismissAllForm>,
 ) -> AppResult<Redirect> {
-    dismiss_all(&state.pool, user.employee_id, &form.keys).await?;
-    redirect_with_flash(
+    let result = dismiss_all(&state.pool, user.employee_id, &form.keys)
+        .await
+        .map(|_| ());
+    redirect_with_flash_from_result(
         &session,
         "/notifications",
-        "success",
         "All notifications dismissed",
+        result,
     )
     .await
 }

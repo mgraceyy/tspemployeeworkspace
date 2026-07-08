@@ -3,121 +3,223 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="color-scheme" content="light dark">
   <title>{{ title }} — {{ company_name }}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/theme.js?v=20260707g"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260707g">
 </head>
-<body>
-  <header class="site-header">
-    <div class="container header-inner">
-      <div class="brand">
-        <span class="brand-name">{{ company_name }}</span>
-        <span class="brand-sub">Employee Timekeeping</span>
+<body class="{% if user and not user.must_change_pin %}app-shell {% else %}page-auth {% endif %}{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <div class="app-layout{% if not user or user.must_change_pin %} app-layout-auth{% endif %}">
+    {% if user and not user.must_change_pin %}
+    <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+      <div class="sidebar-header">
+        <a href="{% if user.role == 'admin' %}/manager{% else %}/{% endif %}" class="brand sidebar-brand">
+          <span class="brand-mark" aria-hidden="true">DTR</span>
+          <div class="brand-text">
+            <span class="brand-name">{{ company_name }}</span>
+            <span class="brand-sub">Employee Timekeeping</span>
+          </div>
+        </a>
       </div>
-      {% if user %}
-      <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-hidden="true">
-      <label for="nav-toggle" class="nav-toggle-label">Menu</label>
-      <nav class="nav">
-        {% if not user.must_change_pin %}
-        <div class="nav-groups">
-          <div class="nav-group">
-            <span class="nav-group-label">Time</span>
-            <div class="nav-group-links">
-              <a href="/">Clock</a>
-              <a href="/me/timesheet">Timesheet</a>
-              <a href="/me/leave">Leave</a>
-              <a href="/me/holidays">Holidays</a>
-            </div>
-          </div>
-          <div class="nav-group">
-            <span class="nav-group-label">My Workspace</span>
-            <div class="nav-group-links">
-              <a href="/me/profile">Profile</a>
-              <a href="/me/requirements">Requirements</a>
-              <a href="/me/eod" class="nav-link-with-badge">
-                EOD
-                {% if pending_eod %}
-                <span class="nav-badge">!</span>
-                {% endif %}
-              </a>
-              <a href="/me/eod/history">History</a>
-              <a href="/me/payslips">Payslips</a>
-              <a href="/me/team/eod">Team EOD</a>
-            </div>
-          </div>
-          {% if user.role == "manager" or user.role == "admin" %}
-          <div class="nav-group">
-            <span class="nav-group-label">Manager</span>
-            <div class="nav-group-links">
-              <a href="/manager" class="nav-link-with-badge">
-                Dashboard
-                {% if pending_ot_count > 0 %}
-                <span class="nav-badge">{{ pending_ot_count }}</span>
-                {% endif %}
-              </a>
-              <a href="/manager/team">Team</a>
-              <a href="/manager/pin-resets">PIN Resets</a>
-              <a href="/manager/leave" class="nav-link-with-badge">
-                Leave
-                {% if pending_leave_count > 0 %}
-                <span class="nav-badge">{{ pending_leave_count }}</span>
-                {% endif %}
-              </a>
-              <a href="/manager/requirements" class="nav-link-with-badge">
-                Req. Reviews
-                {% if pending_requirements_count > 0 %}
-                <span class="nav-badge">{{ pending_requirements_count }}</span>
-                {% endif %}
-              </a>
-              <a href="/manager/eod">Team EOD</a>
-            </div>
-          </div>
-          {% endif %}
-          {% if user.role == "admin" %}
-          <div class="nav-group">
-            <span class="nav-group-label">Admin</span>
-            <div class="nav-group-links">
-              <a href="/admin/employees">Employees</a>
-              <a href="/admin/requirements">Req. Types</a>
-              <a href="/admin/holidays">Holidays</a>
-              <a href="/admin/reports">Reports</a>
-              <a href="/admin/payroll">Payroll</a>
-              <a href="/admin/deduction-types">Deduction Types</a>
-              <a href="/admin/compensation/import">Import Comp.</a>
-              <a href="/admin/corrections">Corrections</a>
-              <a href="/admin/eod">Unlock EOD</a>
-              <a href="/admin/audit">Audit</a>
-              <a href="/admin/settings">Settings</a>
-            </div>
-          </div>
-          {% endif %}
-        </div>
-        <a href="/notifications" class="nav-link-with-badge">
-          Alerts
-          {% if notification_count > 0 %}
-          <span class="nav-badge">{{ notification_count }}</span>
+
+      <nav class="sidebar-nav" aria-label="Main">
+        {% if user.role == "admin" %}
+        <a href="/manager" class="sidebar-link nav-link-with-badge">
+          Dashboard
+          {% if pending_ot_count > 0 %}
+          <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}
         </a>
-        <a href="/change-pin">Change PIN</a>
+        <a href="/admin/employees" class="sidebar-link">Employees</a>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label">Payroll</span>
+          <a href="/admin/payroll" class="sidebar-link">Payroll Runs</a>
+          <a href="/admin/deduction-types" class="sidebar-link">Deduction Types</a>
+        </div>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label">Company</span>
+          <a href="/admin/holidays" class="sidebar-link">Holidays</a>
+          <a href="/admin/requirements" class="sidebar-link">Requirement Types</a>
+          <a href="/admin/corrections" class="sidebar-link">Corrections</a>
+          <a href="/admin/eod" class="sidebar-link">Unlock EOD</a>
+          <a href="/admin/settings" class="sidebar-link">Settings</a>
+        </div>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label">Reports</span>
+          <a href="/admin/reports" class="sidebar-link">Reports</a>
+          <a href="/admin/audit" class="sidebar-link">Audit Log</a>
+        </div>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label sidebar-section-label-with-badge">
+            Team
+            {% if pending_ot_count > 0 or pending_leave_count > 0 or pending_requirements_count > 0 %}
+            <span class="nav-badge nav-badge-dot" aria-hidden="true"></span>
+            {% endif %}
+          </span>
+          <a href="/manager/team" class="sidebar-link">Team</a>
+          <a href="/manager/pin-resets" class="sidebar-link">PIN Resets</a>
+          <a href="/manager/leave" class="sidebar-link nav-link-with-badge">
+            Leave
+            {% if pending_leave_count > 0 %}
+            <span class="nav-badge">{{ pending_leave_count }}</span>
+            {% endif %}
+          </a>
+          <a href="/manager/requirements" class="sidebar-link nav-link-with-badge">
+            Req. Reviews
+            {% if pending_requirements_count > 0 %}
+            <span class="nav-badge">{{ pending_requirements_count }}</span>
+            {% endif %}
+          </a>
+          <a href="/manager/eod" class="sidebar-link">Team EOD</a>
+        </div>
+
+        {% else %}
+        {% if user.role == "manager" %}
+        <a href="/manager" class="sidebar-link nav-link-with-badge">
+          Dashboard
+          {% if pending_ot_count > 0 %}
+          <span class="nav-badge">{{ pending_ot_count }}</span>
+          {% endif %}
+        </a>
         {% endif %}
-        <form method="post" action="/logout" class="inline-form">
-          {% include "partials/csrf_field.html" %}
-          <button type="submit" class="link-button">Logout ({{ user.full_name }})</button>
-        </form>
+        <a href="/" class="sidebar-link">Clock</a>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label">Time</span>
+          <a href="/me/timesheet" class="sidebar-link">Timesheet</a>
+          <a href="/me/leave" class="sidebar-link">Leave</a>
+          <a href="/me/holidays" class="sidebar-link">Holidays</a>
+        </div>
+
+        <div class="sidebar-section">
+          <span class="sidebar-section-label sidebar-section-label-with-badge">
+            Workspace
+            {% if pending_eod %}
+            <span class="nav-badge nav-badge-dot" aria-label="EOD pending"></span>
+            {% endif %}
+          </span>
+          <a href="/me/profile" class="sidebar-link">Profile</a>
+          <a href="/me/requirements" class="sidebar-link">Requirements</a>
+          <a href="/me/eod" class="sidebar-link nav-link-with-badge">
+            EOD
+            {% if pending_eod %}
+            <span class="nav-badge">!</span>
+            {% endif %}
+          </a>
+          <a href="/me/payslips" class="sidebar-link">Payslips</a>
+          <a href="/me/team/eod" class="sidebar-link">Team EOD</a>
+        </div>
+
+        {% if user.role == "manager" %}
+        <div class="sidebar-section">
+          <span class="sidebar-section-label sidebar-section-label-with-badge">
+            Manager
+            {% if pending_ot_count > 0 or pending_leave_count > 0 or pending_requirements_count > 0 %}
+            <span class="nav-badge nav-badge-dot" aria-hidden="true"></span>
+            {% endif %}
+          </span>
+          <a href="/manager/team" class="sidebar-link">Team</a>
+          <a href="/manager/pin-resets" class="sidebar-link">PIN Resets</a>
+          <a href="/manager/leave" class="sidebar-link nav-link-with-badge">
+            Leave
+            {% if pending_leave_count > 0 %}
+            <span class="nav-badge">{{ pending_leave_count }}</span>
+            {% endif %}
+          </a>
+          <a href="/manager/requirements" class="sidebar-link nav-link-with-badge">
+            Req. Reviews
+            {% if pending_requirements_count > 0 %}
+            <span class="nav-badge">{{ pending_requirements_count }}</span>
+            {% endif %}
+          </a>
+          <a href="/manager/eod" class="sidebar-link">Team EOD</a>
+        </div>
+        {% endif %}
+        {% endif %}
       </nav>
-      {% endif %}
-    </div>
-  </header>
-  <main class="container">
-    {% if flash %}
-    <div class="alert alert-{{ flash.kind }}">{{ flash.message }}</div>
+    </aside>
+
+    <div class="sidebar-overlay" id="sidebar-overlay" hidden></div>
     {% endif %}
-    {% block page %}{% endblock %}
-  </main>
-  {% if user and not user.must_change_pin %}
-  <p class="session-note muted" role="note">
-    Sessions end after {{ session_idle_hours }} hours without server activity (sign in again to continue).
-    This app records clock in/out only — it does not monitor mouse, keyboard, or other activity.
-  </p>
-  {% endif %}
+
+    <div class="app-main">
+      {% if user and not user.must_change_pin %}
+      <header class="topbar">
+        <button type="button" id="sidebar-toggle" class="sidebar-toggle-btn" aria-expanded="false" aria-controls="sidebar" aria-label="Open navigation menu">
+          <span class="nav-toggle-bars" aria-hidden="true"></span>
+        </button>
+
+        <div class="topbar-actions">
+          <a href="/notifications" class="header-icon-btn nav-link-with-badge" aria-label="Notifications{% if notification_count > 0 %} ({{ notification_count }} unread){% endif %}">
+            <span class="header-icon" aria-hidden="true">🔔</span>
+            {% if notification_count > 0 %}
+            <span class="nav-badge">{{ notification_count }}</span>
+            {% endif %}
+          </a>
+
+          <button type="button" id="theme-toggle" class="header-icon-btn theme-toggle" aria-pressed="false" aria-label="Switch to dark mode">
+            <span class="theme-icon header-icon" aria-hidden="true">☀</span>
+            <span class="theme-label sr-only">Dark</span>
+          </button>
+
+          <details class="user-menu">
+            <summary class="user-menu-trigger">
+              <span class="user-avatar" aria-hidden="true">{{ user.employee_code }}</span>
+              <span class="user-menu-label">{{ user.employee_code }}</span>
+              <span class="user-menu-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="user-menu-panel">
+              <p class="user-menu-name">{{ user.full_name }}</p>
+              <p class="user-menu-role muted">{{ user.role | capitalize }}</p>
+              <a href="/change-pin" class="user-menu-link">Change PIN</a>
+              {% if user.role == "admin" %}
+              <a href="/me/profile" class="user-menu-link">My Profile</a>
+              {% endif %}
+              <form method="post" action="/logout" class="user-menu-logout">
+                {% include "partials/csrf_field.html" %}
+                <button type="submit" class="user-menu-link user-menu-link-danger">Sign out</button>
+              </form>
+            </div>
+          </details>
+        </div>
+      </header>
+
+      {% else %}
+      <header class="site-header site-header-minimal">
+        <div class="container header-shell">
+          <a href="/" class="brand">
+            <span class="brand-mark" aria-hidden="true">DTR</span>
+            <div class="brand-text">
+              <span class="brand-name">{{ company_name }}</span>
+              <span class="brand-sub">Employee Timekeeping</span>
+            </div>
+          </a>
+        </div>
+      </header>
+      {% endif %}
+
+      <main id="main-content" class="container {% block main_class %}{% endblock %}">
+        {% if flash %}
+        <div class="alert alert-{{ flash.kind }}" role="status">{{ flash.message }}</div>
+        {% endif %}
+        {% block page %}{% endblock %}
+      </main>
+
+      <footer class="site-footer">
+        <div class="container">
+          <p>{{ company_name }} · Employee Timekeeping</p>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  {% block scripts %}{% endblock %}
 </body>
 </html>

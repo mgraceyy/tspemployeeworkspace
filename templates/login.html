@@ -1,23 +1,27 @@
 {% extends "base.html" %}
+{% block body_class %}page-auth{% endblock %}
 {% block page %}
-<section class="login-card">
-  <h1>{{ company_name }}</h1>
-  <p class="muted">Sign in with your employee code and PIN</p>
-  {% if content.error %}
-  <div class="alert alert-error">{{ content.error }}</div>
-  {% endif %}
-  <form method="post" action="/login" class="stack">
-    {% include "partials/csrf_field.html" %}
-    <label>
-      Employee Code
-      <input type="text" name="employee_code" required autocomplete="username" placeholder="E0042">
-    </label>
-    <label>
-      PIN
-      <input type="password" name="pin" required autocomplete="current-password" placeholder="••••">
-    </label>
-    <button type="submit" class="btn btn-primary">Sign In</button>
-  </form>
-  <p class="hint"><a href="/login/request-pin-reset">Forgot PIN? Request a reset</a></p>
-</section>
+<div class="auth-shell">
+  <section class="auth-card login-card">
+    <div class="auth-card-icon" aria-hidden="true">⏱</div>
+    <h1>{{ company_name }}</h1>
+    <p class="muted">Sign in with your employee code and PIN</p>
+    {% if content.error %}
+    <div class="alert alert-error" role="alert">{{ content.error }}</div>
+    {% endif %}
+    <form method="post" action="/login" class="stack">
+      {% include "partials/csrf_field.html" %}
+      <label>
+        Employee Code
+        <input type="text" name="employee_code" required autocomplete="username" placeholder="e.g. ADMIN" autocapitalize="characters">
+      </label>
+      <label>
+        PIN
+        <input type="password" name="pin" required autocomplete="current-password" placeholder="4–6 digits" inputmode="numeric">
+      </label>
+      <button type="submit" class="btn btn-primary btn-large">Sign In</button>
+    </form>
+    <p class="hint"><a href="/login/request-pin-reset">Forgot PIN? Request a reset</a></p>
+  </section>
+</div>
 {% endblock %}

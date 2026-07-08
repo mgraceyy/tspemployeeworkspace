@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
@@ -74,7 +74,50 @@ pub async fn mark_absence_for_employee(
 
     assert_can_manage(pool, manager_id, employee_id, is_admin).await?;
     crate::services::payroll_controls::assert_work_date_editable(pool, work_date).await?;
+    write_absence_entry_pool(pool, employee_id, work_date, status, editor_id).await
+}
 
+pub async fn clear_leave_absence_for_employee_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    work_date: Date,
+    status: AttendanceStatus,
+) -> AppResult<()> {
+    sqlx::query(
+        "DELETE FROM time_entries
+         WHERE employee_id = $1 AND work_date = $2
+           AND clock_in IS NULL AND clock_out IS NULL
+           AND attendance = $3",
+    )
+    .bind(employee_id)
+    .bind(work_date)
+    .bind(status)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(())
+}
+
+pub async fn mark_absence_for_employee_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    work_date: Date,
+    status: AttendanceStatus,
+    editor_id: Uuid,
+) -> AppResult<()> {
+    if !status.is_manager_markable() {
+        return Err(AppError::bad_request("Invalid absence type"));
+    }
+    write_absence_entry_tx(tx, employee_id, work_date, status, editor_id).await
+}
+
+async fn write_absence_entry_pool(
+    pool: &PgPool,
+    employee_id: Uuid,
+    work_date: Date,
+    status: AttendanceStatus,
+    editor_id: Uuid,
+) -> AppResult<()> {
     let existing: Option<(Uuid, Option<time::OffsetDateTime>)> = sqlx::query_as(
         "SELECT id, clock_in FROM time_entries WHERE employee_id = $1 AND work_date = $2",
     )
@@ -83,13 +126,71 @@ pub async fn mark_absence_for_employee(
     .fetch_optional(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
+    apply_absence_write(pool, employee_id, work_date, status, editor_id, existing).await
+}
 
+async fn write_absence_entry_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    employee_id: Uuid,
+    work_date: Date,
+    status: AttendanceStatus,
+    editor_id: Uuid,
+) -> AppResult<()> {
+    let existing: Option<(Uuid, Option<time::OffsetDateTime>)> = sqlx::query_as(
+        "SELECT id, clock_in FROM time_entries WHERE employee_id = $1 AND work_date = $2",
+    )
+    .bind(employee_id)
+    .bind(work_date)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
     if let Some((_, Some(_))) = existing {
         return Err(AppError::bad_request(
             "Cannot mark absence when employee already clocked in",
         ));
     }
+    if let Some((entry_id, _)) = existing {
+        sqlx::query("UPDATE time_entries SET attendance = $2 WHERE id = $1")
+            .bind(entry_id)
+            .bind(status)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| AppError::Internal(e.into()))?;
+    } else {
+        sqlx::query(
+            "INSERT INTO time_entries (employee_id, work_date, attendance)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(employee_id)
+        .bind(work_date)
+        .bind(status)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?;
+    }
+    tracing::info!(
+        employee_id = %employee_id,
+        work_date = %work_date,
+        editor_id = %editor_id,
+        ?status,
+        "marked absence"
+    );
+    Ok(())
+}
 
+async fn apply_absence_write(
+    pool: &PgPool,
+    employee_id: Uuid,
+    work_date: Date,
+    status: AttendanceStatus,
+    editor_id: Uuid,
+    existing: Option<(Uuid, Option<time::OffsetDateTime>)>,
+) -> AppResult<()> {
+    if let Some((_, Some(_))) = existing {
+        return Err(AppError::bad_request(
+            "Cannot mark absence when employee already clocked in",
+        ));
+    }
     if let Some((entry_id, _)) = existing {
         sqlx::query("UPDATE time_entries SET attendance = $2 WHERE id = $1")
             .bind(entry_id)
@@ -109,7 +210,6 @@ pub async fn mark_absence_for_employee(
         .await
         .map_err(|e| AppError::Internal(e.into()))?;
     }
-
     tracing::info!(
         employee_id = %employee_id,
         work_date = %work_date,
@@ -143,24 +243,14 @@ pub async fn mark_no_show_for_employee(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{settings::CompanySettings, PayPeriodType};
+    use crate::models::settings::CompanySettings;
     use crate::services::timezone::combine_date_time;
     use time::{Month, Time};
 
     fn test_settings() -> CompanySettings {
         CompanySettings {
             company_name: "Test".into(),
-            break_minutes: 60,
-            ot_threshold_minutes: 480,
-            grace_minutes: 5,
-            pay_period: PayPeriodType::Semimonthly,
-            pay_period_anchor: Date::from_calendar_date(2024, Month::January, 1).unwrap(),
-            timezone: "Asia/Manila".into(),
-            ot_requires_approval: true,
-            journal_salary_expense_account: "5100".into(),
-            journal_net_payable_account: "2100".into(),
-            journal_salary_expense_label: "Salaries expense".into(),
-            journal_net_payable_label: "Net pay payable".into(),
+            ..Default::default()
         }
     }
 

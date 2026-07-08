@@ -31,7 +31,7 @@ pub async fn list_for_user(pool: &PgPool, user: &UserSession) -> AppResult<Vec<N
     let settings = get_settings(pool).await?;
     let today = company_date_now(&settings)?;
 
-    if needs_eod_reminder(pool, user.employee_id).await? {
+    if !user.role.is_admin() && needs_eod_reminder(pool, user.employee_id).await? {
         items.push(Notification {
             key: format!("missing_eod:{today}"),
             kind: "missing_eod".into(),

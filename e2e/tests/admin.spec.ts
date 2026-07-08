@@ -16,14 +16,20 @@ test("admin can change PIN and create a new employee", async ({ page }) => {
   await page.fill('input[name="new_pin"]', ADMIN_PIN);
   await page.fill('input[name="confirm_pin"]', ADMIN_PIN);
   await page.getByRole("button", { name: /save pin/i }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/manager");
 
-  await page.goto("/admin/employees");
-  await expect(page.getByRole("heading", { name: /^employees$/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /manager dashboard/i })).toBeVisible();
+
+  await page.getByRole("link", { name: /^employees$/i }).click();
+  await expect(page).toHaveURL("/admin/employees");
+
+  await page.getByRole("button", { name: /add employee/i }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
 
   await page.fill('input[name="employee_code"]', newCode);
   await page.fill('input[name="full_name"]', "E2E Created Employee");
   await page.fill('input[name="pin"]', "482915");
+  await page.fill('input[name="department"]', "Engineering");
   await page.selectOption('select[name="role"]', "employee");
   await page.getByRole("button", { name: /create employee/i }).click();
 

@@ -88,72 +88,8 @@ pub async fn set_deduction_type_active(
 }
 
 pub async fn apply_deduction_defaults_for_run(pool: &PgPool, run_id: Uuid) -> AppResult<()> {
-    let lines = sqlx::query_as::<_, (Uuid, Uuid)>(
-        "SELECT l.id, l.employee_id FROM payroll_lines l WHERE l.run_id = $1",
-    )
-    .bind(run_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AppError::Internal(e.into()))?;
-
-    for (line_id, employee_id) in lines {
-        let existing: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM payroll_deductions WHERE line_id = $1")
-                .bind(line_id)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| AppError::Internal(e.into()))?;
-        if existing > 0 {
-            continue;
-        }
-
-        let defaults: Vec<(Uuid, i64)> = sqlx::query_as(
-            "SELECT d.deduction_type_id, d.amount_cents
-             FROM employee_deduction_defaults d
-             JOIN deduction_types t ON t.id = d.deduction_type_id AND t.is_active = TRUE
-             WHERE d.employee_id = $1 AND d.amount_cents > 0",
-        )
-        .bind(employee_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AppError::Internal(e.into()))?;
-
-        if defaults.is_empty() {
-            continue;
-        }
-
-        let gross: i64 =
-            sqlx::query_scalar("SELECT gross_pay_cents FROM payroll_lines WHERE id = $1")
-                .bind(line_id)
-                .fetch_one(pool)
-                .await
-                .map_err(|e| AppError::Internal(e.into()))?;
-        let total: i64 = defaults.iter().map(|(_, amount)| amount).sum();
-        if total > gross {
-            continue;
-        }
-
-        for (type_id, amount) in defaults {
-            sqlx::query(
-                "INSERT INTO payroll_deductions (line_id, deduction_type_id, amount_cents)
-                 VALUES ($1, $2, $3)",
-            )
-            .bind(line_id)
-            .bind(type_id)
-            .bind(amount)
-            .execute(pool)
-            .await
-            .map_err(|e| AppError::Internal(e.into()))?;
-        }
-        let net = gross - total;
-        sqlx::query("UPDATE payroll_lines SET net_pay_cents = $2 WHERE id = $1")
-            .bind(line_id)
-            .bind(net)
-            .execute(pool)
-            .await
-            .map_err(|e| AppError::Internal(e.into()))?;
-    }
-    Ok(())
+    let settings = crate::services::settings::get_settings(pool).await?;
+    super::deductions_auto::apply_automatic_deductions_for_run(pool, run_id, &settings).await
 }
 
 pub async fn get_line_for_run(
@@ -165,8 +101,9 @@ pub async fn get_line_for_run(
         "SELECT l.id, l.employee_id, e.employee_code, e.full_name, p.department,
                 e.is_active AS employee_is_active,
                 l.regular_minutes, l.approved_ot_minutes, l.pending_ot_minutes, l.no_show_days,
+                l.lwop_days, l.employed_days, l.period_calendar_days,
                 l.base_pay_cents, l.allowance_cents, l.no_show_deduction_cents, l.ot_pay_cents,
-                l.gross_pay_cents, l.net_pay_cents,
+                l.premium_pay_cents, l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
                 ), 0) AS total_deduction_cents

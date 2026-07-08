@@ -1,5 +1,8 @@
+use minijinja::context;
+
 use crate::models::RequirementStatus;
-use crate::services::requirements::is_requirement_expired;
+use crate::services::requirements::{has_uploaded_file, is_requirement_expired};
+use crate::services::timezone::format_time;
 use axum::{
     body::Body,
     http::header,
@@ -29,6 +32,32 @@ pub(crate) fn status_display(
         };
         (status_label(req.status), key)
     }
+}
+
+pub(crate) fn build_requirement_rows(
+    reqs: &[crate::models::EmployeeRequirement],
+    timezone: &str,
+) -> Vec<minijinja::value::Value> {
+    reqs.iter()
+        .map(|r| {
+            let (status, _) = status_display(r);
+            context! {
+                id => r.id,
+                name => r.type_name.clone(),
+                description => r.type_description.clone(),
+                status => status,
+                employee_note => r.employee_note.clone().unwrap_or_default(),
+                admin_note => r.admin_note.clone().unwrap_or_default(),
+                submitted_at => r.submitted_at.map(|dt| format_time(dt, timezone)).unwrap_or_default(),
+                expires_at => r.expires_at.map(|dt| format_time(dt, timezone)).unwrap_or_default(),
+                is_expired => is_requirement_expired(r.expires_at),
+                can_review => r.status == RequirementStatus::Submitted,
+                has_file => has_uploaded_file(r),
+                file_name => r.file_name.clone().unwrap_or_default(),
+                file_size => format_file_size(r.file_size),
+            }
+        })
+        .collect()
 }
 
 pub(crate) fn format_file_size(size: Option<i64>) -> String {

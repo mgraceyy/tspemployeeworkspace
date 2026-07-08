@@ -641,34 +641,24 @@ async fn admin_can_update_employee_via_http() {
 }
 
 #[tokio::test]
-async fn admin_can_bulk_assign_department_via_http() {
+async fn admin_create_employee_sets_department_via_http() {
     let Some(pool) = test_pool().await else {
         eprintln!("skipping http test: DATABASE_URL not available");
         return;
     };
 
     let admin_code = unique_code("BKDP");
-    let emp_code = unique_code("BKEM");
+    let new_code = unique_code("BKEM");
     create_ready_employee(
         &pool,
         &admin_code,
-        "Bulk Dept Admin",
+        "Create Dept Admin",
         TEST_PIN,
         UserRole::Admin,
         None,
     )
     .await
     .expect("create admin");
-    let employee = create_ready_employee(
-        &pool,
-        &emp_code,
-        "Bulk Dept Employee",
-        TEST_PIN,
-        UserRole::Employee,
-        None,
-    )
-    .await
-    .expect("create employee");
 
     let department = format!("Engineering{}", &Uuid::new_v4().simple().to_string()[..4]);
     let mut app = test_app(pool.clone()).await;
@@ -676,27 +666,26 @@ async fn admin_can_bulk_assign_department_via_http() {
     let (_, employees_html, cookies) = get(&mut app, "/admin/employees", &cookies).await;
     let csrf = extract_csrf_token(&employees_html).expect("csrf");
     let body = format!(
-        "department={}&employee_ids={}&csrf_token={csrf}",
-        department, employee.id
+        "employee_code={new_code}&full_name=Dept+HTTP+Employee&pin=482915&role=employee&department={department}&csrf_token={csrf}"
     );
-    let (status, _, _) = post_form(
-        &mut app,
-        "/admin/employees/bulk-department",
-        &cookies,
-        &body,
-    )
-    .await;
+    let (status, _, _) = post_form(&mut app, "/admin/employees", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let employee_id: Uuid = sqlx::query_scalar("SELECT id FROM employees WHERE employee_code = $1")
+        .bind(&new_code)
+        .fetch_one(&pool)
+        .await
+        .expect("employee id");
 
     let saved: Option<String> =
         sqlx::query_scalar("SELECT department FROM employee_profiles WHERE employee_id = $1")
-            .bind(employee.id)
+            .bind(employee_id)
             .fetch_one(&pool)
             .await
             .expect("department");
     assert_eq!(saved.as_deref(), Some(department.as_str()));
 
-    cleanup_employee(&pool, &emp_code).await;
+    cleanup_employee(&pool, &new_code).await;
     cleanup_employee(&pool, &admin_code).await;
 }
 

@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use sqlx::PgPool;
 use time::Date;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{EmployeeProfile, EmployeeWorkProfile};
+use crate::services::payroll::compute::EmploymentSpan;
 
 pub struct AdminProfileInput<'a> {
     pub contact_number: Option<&'a str>,
@@ -16,6 +19,7 @@ pub struct AdminProfileInput<'a> {
     pub department: Option<&'a str>,
     pub employment_type: Option<&'a str>,
     pub date_hired: Option<Date>,
+    pub date_separated: Option<Date>,
     pub work_location: Option<&'a str>,
     pub bank_account: Option<&'a str>,
     pub tin: Option<&'a str>,
@@ -25,8 +29,8 @@ pub struct AdminProfileInput<'a> {
 
 const PROFILE_COLUMNS: &str = "employee_id, contact_number, personal_email, birthdate, address,
                 emergency_contact_name, emergency_contact_phone, job_title, department,
-                employment_type, date_hired, work_location, bank_account, tin, sss_number,
-                philhealth_number, photo_path, updated_at, updated_by";
+                employment_type, date_hired, date_separated, work_location, bank_account, tin,
+                sss_number, philhealth_number, photo_path, updated_at, updated_by";
 
 fn empty_to_none(value: Option<&str>) -> Option<String> {
     value.map(str::trim).and_then(|v| {
@@ -36,6 +40,25 @@ fn empty_to_none(value: Option<&str>) -> Option<String> {
             Some(v.to_string())
         }
     })
+}
+
+pub async fn set_department(pool: &PgPool, employee_id: Uuid, department: &str) -> AppResult<()> {
+    let dept = department.trim();
+    if dept.is_empty() {
+        return Err(AppError::bad_request("Department is required"));
+    }
+    ensure_profile(pool, employee_id).await?;
+    sqlx::query(
+        "UPDATE employee_profiles
+         SET department = $2, updated_at = now()
+         WHERE employee_id = $1",
+    )
+    .bind(employee_id)
+    .bind(dept)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(())
 }
 
 pub async fn ensure_profile(pool: &PgPool, employee_id: Uuid) -> AppResult<()> {
@@ -103,11 +126,12 @@ pub async fn update_admin(
              department = $10,
              employment_type = $11,
              date_hired = $12,
-             work_location = $13,
-             bank_account = $14,
-             tin = $15,
-             sss_number = $16,
-             philhealth_number = $17,
+             date_separated = $13,
+             work_location = $14,
+             bank_account = $15,
+             tin = $16,
+             sss_number = $17,
+             philhealth_number = $18,
              updated_at = now(),
              updated_by = $2
          WHERE employee_id = $1
@@ -125,6 +149,7 @@ pub async fn update_admin(
     .bind(empty_to_none(input.department))
     .bind(empty_to_none(input.employment_type))
     .bind(input.date_hired)
+    .bind(input.date_separated)
     .bind(empty_to_none(input.work_location))
     .bind(empty_to_none(input.bank_account))
     .bind(empty_to_none(input.tin))
@@ -169,6 +194,38 @@ pub async fn get_work_profile(pool: &PgPool, employee_id: Uuid) -> AppResult<Emp
     .fetch_one(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))
+}
+
+pub async fn get_employment_spans(
+    pool: &PgPool,
+    employee_ids: &[Uuid],
+) -> AppResult<HashMap<Uuid, EmploymentSpan>> {
+    if employee_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows: Vec<(Uuid, Option<Date>, Option<Date>)> = sqlx::query_as(
+        "SELECT employee_id, date_hired, date_separated
+         FROM employee_profiles
+         WHERE employee_id = ANY($1)",
+    )
+    .bind(employee_ids)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(id, date_hired, date_separated)| {
+            (
+                id,
+                EmploymentSpan {
+                    date_hired,
+                    date_separated,
+                },
+            )
+        })
+        .collect())
 }
 
 pub async fn get_department(pool: &PgPool, employee_id: Uuid) -> AppResult<Option<String>> {

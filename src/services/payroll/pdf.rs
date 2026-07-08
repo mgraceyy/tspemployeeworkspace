@@ -92,18 +92,38 @@ pub async fn build_payslip_pdf(
         "Earnings",
         line_height,
     );
+    let base_label = match (detail.employed_days, detail.period_calendar_days) {
+        (Some(employed), Some(period_days)) if employed > 0 && employed < period_days => {
+            format!(
+                "Base pay (prorated {employed}/{period_days}d): PHP {}",
+                format_salary_cents(detail.base_pay_cents)
+            )
+        }
+        _ => format!(
+            "Base pay: PHP {}",
+            format_salary_cents(detail.base_pay_cents)
+        ),
+    };
     write_line(
         &current_layer,
         &font,
         10.0,
         left,
         &mut y,
-        &format!(
-            "Base pay: PHP {}",
-            format_salary_cents(detail.base_pay_cents)
-        ),
+        &base_label,
         line_height,
     );
+    if detail.lwop_days > 0 {
+        write_line(
+            &current_layer,
+            &font,
+            10.0,
+            left,
+            &mut y,
+            &format!("LWOP days: {}", detail.lwop_days),
+            line_height,
+        );
+    }
     if detail.allowance_cents > 0 {
         write_line(
             &current_layer,

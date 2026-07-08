@@ -25,6 +25,13 @@ use crate::services::{
 };
 use crate::state::AppState;
 
+fn payslip_is_prorated(employed_days: Option<i32>, period_calendar_days: Option<i32>) -> bool {
+    match (employed_days, period_calendar_days) {
+        (Some(employed), Some(period_days)) => employed > 0 && employed < period_days,
+        _ => false,
+    }
+}
+
 fn payslip_template_context(
     payslip: &PayslipDetail,
     company_name: &str,
@@ -58,6 +65,11 @@ fn payslip_template_context(
         regular_minutes => format_minutes(payslip.regular_minutes),
         approved_ot_minutes => format_minutes(payslip.approved_ot_minutes),
         no_show_days => payslip.no_show_days,
+        has_lwop_days => payslip.lwop_days > 0,
+        lwop_days => payslip.lwop_days,
+        is_prorated => payslip_is_prorated(payslip.employed_days, payslip.period_calendar_days),
+        employed_days => payslip.employed_days.unwrap_or(0),
+        period_calendar_days => payslip.period_calendar_days.unwrap_or(0),
         base_pay => format_salary_cents(payslip.base_pay_cents),
         has_allowance => payslip.allowance_cents > 0,
         allowance => format_salary_cents(payslip.allowance_cents),
@@ -65,6 +77,8 @@ fn payslip_template_context(
         no_show_deduction => format_salary_cents(payslip.no_show_deduction_cents),
         ot_pay => format_salary_cents(payslip.ot_pay_cents),
         has_ot_pay => payslip.ot_pay_cents > 0,
+        premium_pay => format_salary_cents(payslip.premium_pay_cents),
+        has_premium_pay => payslip.premium_pay_cents > 0,
         gross_pay => format_salary_cents(payslip.gross_pay_cents),
         total_deductions => format_salary_cents(payslip.total_deduction_cents),
         has_deductions => payslip.total_deduction_cents > 0,

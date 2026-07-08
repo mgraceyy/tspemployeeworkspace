@@ -1,17 +1,31 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>{{ content.full_name }} — EOD</h1>
-  <p class="muted">{{ content.report_date }} · Submitted {{ content.submitted_at }}</p>
-  <p><a href="/me/team/eod">← Back to Team EOD</a></p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>{{ content.full_name }} — EOD</h1>
+    <p class="page-hero-lead">Team member end-of-day report.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.report_date }}</span>
+      <span class="stat-pill">Submitted {{ content.submitted_at }}</span>
+    </div>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/me/eod" class="btn">Back to EOD</a>
+  </div>
+</header>
 
-<section class="panel">
-  {% if content.summary %}<p>{{ content.summary }}</p>{% endif %}
+<section class="data-panel eod-read-panel">
+  <div class="data-panel-header">
+    <h2>Report</h2>
+  </div>
+  {% if content.summary %}
+  <p class="eod-summary-text">{{ content.summary }}</p>
+  {% endif %}
   {% if content.tasks %}
   <ul class="eod-task-list">
     {% for task in content.tasks %}
-    <li><span class="badge">{{ task.kind }}</span> {{ task.title }}</li>
+    <li><span class="badge badge-{{ task.kind | lower }}">{{ task.kind }}</span> {{ task.title }}</li>
     {% endfor %}
   </ul>
   {% else %}

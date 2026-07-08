@@ -1,8 +1,9 @@
-[package]
+﻿[package]
 name = "dtr"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
+build = "build.rs"
 
 [lib]
 name = "dtr"
@@ -15,6 +16,14 @@ path = "src/main.rs"
 [[bin]]
 name = "dtr-migrate"
 path = "src/bin/migrate.rs"
+
+[[bin]]
+name = "dtr-reset-admin"
+path = "src/bin/reset-admin.rs"
+
+[[bin]]
+name = "dtr-seed-sample"
+path = "src/bin/seed-sample.rs"
 
 [dependencies]
 anyhow = "1"

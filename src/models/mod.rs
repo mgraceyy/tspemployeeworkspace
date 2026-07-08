@@ -17,7 +17,9 @@ pub use compensation::{CompensationHistoryRow, CompensationProfile};
 pub use deduction::{DeductionType, PayrollDeduction, PayrollDeductionWithType};
 pub use employee::{Employee, EmployeeSummary, UserRole};
 pub use holiday::CompanyHoliday;
-pub use leave::{LeaveRequest, LeaveRequestStatus, LeaveRequestType, LeaveRequestWithEmployee};
+pub use leave::{
+    LeaveDayPortion, LeaveRequest, LeaveRequestStatus, LeaveRequestType, LeaveRequestWithEmployee,
+};
 pub use payroll_run::{PayrollLine, PayrollLineWithEmployee, PayrollRun, PayrollRunStatus};
 pub use pin_reset::{PinResetRequest, PinResetRequestRow, PinResetRequestStatus};
 

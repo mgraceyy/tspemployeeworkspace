@@ -86,6 +86,7 @@ pub async fn export_csv(
                 "Vacation Days",
                 "Official Leave Days",
                 "Offset Days",
+                "LWOP Days",
                 "No-Show Days",
             ])
             .map_err(|e| AppError::Internal(e.into()))?;
@@ -107,6 +108,7 @@ pub async fn export_csv(
                     row.vacation_days.to_string(),
                     row.official_leave_days.to_string(),
                     row.offset_days.to_string(),
+                    row.lwop_days.to_string(),
                     row.no_show_days.to_string(),
                 ])
                 .map_err(|e| AppError::Internal(e.into()))?;

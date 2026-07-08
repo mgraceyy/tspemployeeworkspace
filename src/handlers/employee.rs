@@ -11,16 +11,17 @@ use tower_sessions::Session;
 use crate::auth::AuthUser;
 use crate::display::entry_row;
 use crate::error::{AppError, AppResult};
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     attendance::get_shift_for_date,
     clock::{clock_in, clock_out, get_today_entry, list_entries_for_employee_range},
     eod::needs_eod_reminder,
     holidays::{is_holiday, list_holidays_between},
+    hours::format_minutes,
     reports::{build_timesheet_csv, resolve_timesheet_period},
     settings::get_settings,
-    timezone::{company_date_now, format_date, format_time, now_company},
+    timezone::{company_date_now, format_date, format_time, format_time_of_day, now_company},
 };
 use crate::state::AppState;
 
@@ -43,8 +44,8 @@ pub async fn home(
 
     let shift_display = shift.as_ref().map(|s| {
         context! {
-            start_time => format!("{:02}:{:02}", s.start_time.hour(), s.start_time.minute()),
-            end_time => format!("{:02}:{:02}", s.end_time.hour(), s.end_time.minute()),
+            start_time => format_time_of_day(s.start_time),
+            end_time => format_time_of_day(s.end_time),
         }
     });
     let tz = settings.timezone.as_str();
@@ -74,6 +75,7 @@ pub async fn home(
         context! {
             today => format_date(today),
             now => format_time(now_company(&settings)?, tz),
+            timezone => tz,
             entry => entry_display,
             shift => shift_display,
             status => status,
@@ -91,8 +93,8 @@ pub async fn clock_in_action(
     session: Session,
     AuthUser(user): AuthUser,
 ) -> AppResult<Redirect> {
-    clock_in(&state.pool, user.employee_id).await?;
-    redirect_with_flash(&session, "/", "success", "Clocked in successfully").await
+    let result = clock_in(&state.pool, user.employee_id).await.map(|_| ());
+    redirect_with_flash_from_result(&session, "/", "Clocked in successfully", result).await
 }
 
 #[derive(Deserialize, Default)]
@@ -106,11 +108,10 @@ pub async fn clock_out_action(
     AuthUser(user): AuthUser,
     Form(form): Form<ClockOutForm>,
 ) -> AppResult<Redirect> {
-    match clock_out(&state.pool, user.employee_id, form.ot_reason.as_deref()).await {
-        Ok(_) => redirect_with_flash(&session, "/", "success", "Clocked out successfully").await,
-        Err(AppError::BadRequest(msg)) => redirect_with_flash(&session, "/", "error", &msg).await,
-        Err(err) => Err(err),
-    }
+    let result = clock_out(&state.pool, user.employee_id, form.ot_reason.as_deref())
+        .await
+        .map(|_| ());
+    redirect_with_flash_from_result(&session, "/", "Clocked out successfully", result).await
 }
 
 #[derive(Deserialize, Default)]
@@ -133,6 +134,8 @@ pub async fn timesheet(
         list_entries_for_employee_range(&state.pool, user.employee_id, start, end).await?;
     let tz = settings.timezone.as_str();
     let rows: Vec<_> = entries.iter().map(|e| entry_row(e, tz)).collect();
+    let total_regular_minutes: i32 = entries.iter().filter_map(|e| e.regular_minutes).sum();
+    let total_ot_minutes: i32 = entries.iter().map(|e| e.ot_minutes).sum();
     let export_query = if query.start.is_some() && query.end.is_some() {
         format!("?start={}&end={}", format_date(start), format_date(end))
     } else {
@@ -151,6 +154,13 @@ pub async fn timesheet(
             start_date => format_date(start),
             end_date => format_date(end),
             export_query => export_query,
+            days_logged => entries.len(),
+            total_regular => format_minutes(total_regular_minutes),
+            total_ot => if total_ot_minutes > 0 {
+                format_minutes(total_ot_minutes)
+            } else {
+                "—".to_string()
+            },
         },
     )
     .await

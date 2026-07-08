@@ -1,7 +1,7 @@
 use crate::models::{AttendanceStatus, TimeEntry, TimeEntryWithEmployee};
 use crate::services::hours::format_minutes;
 use crate::services::team::TeamMemberStatus;
-use crate::services::timezone::{format_date, format_time, format_time_input};
+use crate::services::timezone::{format_date, format_time, format_time_input, format_time_of_day};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TimeEntryRow {
@@ -68,6 +68,7 @@ fn attendance_label(status: AttendanceStatus) -> String {
         AttendanceStatus::Vacation => "vacation".into(),
         AttendanceStatus::OfficialLeave => "official leave".into(),
         AttendanceStatus::Offset => "offset".into(),
+        AttendanceStatus::Lwop => "LWOP".into(),
     }
 }
 
@@ -90,13 +91,7 @@ pub struct TeamStatusRow {
 
 pub fn team_status_row(member: &TeamMemberStatus, tz: &str) -> TeamStatusRow {
     let shift = match (member.shift_start, member.shift_end) {
-        (Some(s), Some(e)) => format!(
-            "{:02}:{:02} – {:02}:{:02}",
-            s.hour(),
-            s.minute(),
-            e.hour(),
-            e.minute()
-        ),
+        (Some(s), Some(e)) => format!("{} – {}", format_time_of_day(s), format_time_of_day(e)),
         _ => "—".into(),
     };
 
@@ -136,6 +131,7 @@ fn status_label(status: &str) -> String {
         "vacation" => "Vacation",
         "official_leave" => "Official leave",
         "offset" => "Offset",
+        "lwop" => "LWOP",
         "holiday" => "Holiday",
         _ => status,
     }

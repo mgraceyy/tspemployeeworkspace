@@ -6,13 +6,15 @@
 </section>
 
 {% if content.notifications %}
-<form method="post" action="/notifications/dismiss-all" class="inline-form" style="margin-bottom: 1rem;">
+<div class="page-actions">
+<form method="post" action="/notifications/dismiss-all" class="inline-form">
   {% include "partials/csrf_field.html" %}
   {% for note in content.notifications %}
   <input type="hidden" name="keys" value="{{ note.key }}">
   {% endfor %}
   <button type="submit" class="btn btn-small">Dismiss all</button>
 </form>
+</div>
 
 <ul class="notification-list">
   {% for note in content.notifications %}
@@ -33,8 +35,10 @@
   {% endfor %}
 </ul>
 {% else %}
-<section class="panel">
-  <p class="muted">You're all caught up — no notifications right now.</p>
+<section class="panel empty-state">
+  <div class="empty-state-icon" aria-hidden="true">✓</div>
+  <h2>All caught up</h2>
+  <p>No notifications right now.</p>
 </section>
 {% endif %}
 {% endblock %}

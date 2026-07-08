@@ -30,59 +30,208 @@ pub struct EodExportRow {
     pub submitted_at: Option<time::OffsetDateTime>,
 }
 
-pub async fn list_department_eod(
+const EOD_SUMMARY_COLUMNS: &str =
+    "er.id, er.employee_id, e.employee_code, e.full_name, p.department,
+                er.report_date, er.summary, er.status, er.submitted_at";
+
+/// Submitted EOD reports visible on `/me/team/eod` — same team scope as `/manager/eod`.
+///
+/// - Admins: all active employees (except self)
+/// - Managers: direct reports
+/// - Employees: coworkers sharing the same `manager_id`
+pub async fn list_team_eod_submissions(
     pool: &PgPool,
-    employee_id: Uuid,
-    department: &str,
+    viewer_id: Uuid,
+    is_admin: bool,
+    manages_team: bool,
     report_date: Date,
 ) -> AppResult<Vec<EodReportSummary>> {
-    let rows = sqlx::query_as::<_, EodReportSummary>(
-        "SELECT er.id, er.employee_id, e.employee_code, e.full_name, p.department,
-                er.report_date, er.summary, er.status, er.submitted_at
-         FROM eod_reports er
-         JOIN employees e ON e.id = er.employee_id
-         JOIN employee_profiles p ON p.employee_id = e.id
-         WHERE p.department = $1
-           AND er.report_date = $2
-           AND er.status = 'submitted'
-           AND e.is_active = TRUE
-         ORDER BY e.full_name",
-    )
-    .bind(department)
-    .bind(report_date)
-    .fetch_all(pool)
-    .await
+    let rows = if is_admin {
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date = $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.role = 'employee'
+               AND e.id <> $2
+             ORDER BY e.full_name"
+        ))
+        .bind(report_date)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    } else if manages_team {
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date = $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.manager_id = $2
+               AND e.id <> $2
+             ORDER BY e.full_name"
+        ))
+        .bind(report_date)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    } else {
+        let team_manager_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT manager_id FROM employees WHERE id = $1 AND is_active = TRUE",
+        )
+        .bind(viewer_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?
+        .flatten();
+
+        let Some(team_manager_id) = team_manager_id else {
+            return Ok(Vec::new());
+        };
+
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date = $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.manager_id = $2
+               AND e.id <> $3
+             ORDER BY e.full_name"
+        ))
+        .bind(report_date)
+        .bind(team_manager_id)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    }
     .map_err(|e| AppError::Internal(e.into()))?;
 
-    Ok(rows
-        .into_iter()
-        .filter(|r| r.employee_id != employee_id)
-        .collect())
+    Ok(rows)
 }
 
-pub async fn list_department_eod_recent(
+pub async fn list_team_eod_recent_submissions(
     pool: &PgPool,
-    department: &str,
+    viewer_id: Uuid,
+    is_admin: bool,
+    manages_team: bool,
     since: Date,
 ) -> AppResult<Vec<EodReportSummary>> {
-    let rows = sqlx::query_as::<_, EodReportSummary>(
-        "SELECT er.id, er.employee_id, e.employee_code, e.full_name, p.department,
-                er.report_date, er.summary, er.status, er.submitted_at
-         FROM eod_reports er
-         JOIN employees e ON e.id = er.employee_id
-         JOIN employee_profiles p ON p.employee_id = e.id
-         WHERE p.department = $1
-           AND er.report_date >= $2
-           AND er.status = 'submitted'
-           AND e.is_active = TRUE
-         ORDER BY er.report_date DESC, e.full_name",
+    let rows = if is_admin {
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date >= $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.role = 'employee'
+               AND e.id <> $2
+             ORDER BY er.report_date DESC, e.full_name"
+        ))
+        .bind(since)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    } else if manages_team {
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date >= $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.manager_id = $2
+               AND e.id <> $2
+             ORDER BY er.report_date DESC, e.full_name"
+        ))
+        .bind(since)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    } else {
+        let team_manager_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT manager_id FROM employees WHERE id = $1 AND is_active = TRUE",
+        )
+        .bind(viewer_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::Internal(e.into()))?
+        .flatten();
+
+        let Some(team_manager_id) = team_manager_id else {
+            return Ok(Vec::new());
+        };
+
+        sqlx::query_as::<_, EodReportSummary>(&format!(
+            "SELECT {EOD_SUMMARY_COLUMNS}
+             FROM eod_reports er
+             JOIN employees e ON e.id = er.employee_id
+             LEFT JOIN employee_profiles p ON p.employee_id = e.id
+             WHERE er.report_date >= $1
+               AND er.status = 'submitted'
+               AND e.is_active = TRUE
+               AND e.manager_id = $2
+               AND e.id <> $3
+             ORDER BY er.report_date DESC, e.full_name"
+        ))
+        .bind(since)
+        .bind(team_manager_id)
+        .bind(viewer_id)
+        .fetch_all(pool)
+        .await
+    }
+    .map_err(|e| AppError::Internal(e.into()))?;
+
+    Ok(rows)
+}
+
+pub async fn can_view_team_eod_report(
+    pool: &PgPool,
+    viewer_id: Uuid,
+    report_employee_id: Uuid,
+    is_admin: bool,
+    manages_team: bool,
+) -> AppResult<bool> {
+    if viewer_id == report_employee_id {
+        return Ok(true);
+    }
+    if is_admin {
+        return Ok(true);
+    }
+
+    let row: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT e.manager_id, v.manager_id
+         FROM employees e
+         JOIN employees v ON v.id = $2
+         WHERE e.id = $1 AND e.is_active = TRUE AND v.is_active = TRUE",
     )
-    .bind(department)
-    .bind(since)
-    .fetch_all(pool)
+    .bind(report_employee_id)
+    .bind(viewer_id)
+    .fetch_optional(pool)
     .await
     .map_err(|e| AppError::Internal(e.into()))?;
-    Ok(rows)
+
+    let Some((report_manager_id, viewer_manager_id)) = row else {
+        return Ok(false);
+    };
+
+    if manages_team {
+        return Ok(report_manager_id == Some(viewer_id));
+    }
+
+    Ok(report_manager_id.is_some()
+        && report_manager_id == viewer_manager_id
+        && report_manager_id != Some(viewer_id))
 }
 
 pub async fn count_missing_team_eod(
@@ -112,9 +261,9 @@ pub async fn list_team_eod_status(
                     er.status AS eod_status
              FROM employees e
              LEFT JOIN time_entries te
-               ON te.employee_id = e.id AND te.work_date = $2
+               ON te.employee_id = e.id AND te.work_date = $1
              LEFT JOIN eod_reports er
-               ON er.employee_id = e.id AND er.report_date = $2
+               ON er.employee_id = e.id AND er.report_date = $1
              WHERE e.is_active = TRUE AND e.role = 'employee'
              ORDER BY e.full_name",
         )

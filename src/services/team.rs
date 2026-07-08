@@ -235,6 +235,9 @@ fn derive_status(
     if row.attendance == Some(AttendanceStatus::Offset) {
         return "offset".into();
     }
+    if row.attendance == Some(AttendanceStatus::Lwop) {
+        return "lwop".into();
+    }
     if row.attendance == Some(AttendanceStatus::NoShow) {
         return "no_show".into();
     }

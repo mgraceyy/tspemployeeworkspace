@@ -1,10 +1,11 @@
-use axum::http::request::Parts;
+use axum::http::{Method, request::Parts};
 use axum::{
     extract::{FromRequestParts, Request, State},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
 };
 
+use crate::auth::roles::{admin_blocked_request, ADMIN_HOME};
 use crate::auth::session::{get_active_session_from_db, UserSession};
 use crate::error::AppError;
 use crate::state::AppState;
@@ -65,4 +66,18 @@ pub async fn require_admin_role(request: Request, next: Next) -> Response {
         Some(_) => AppError::Forbidden.into_response(),
         None => AppError::Unauthorized.into_response(),
     }
+}
+
+pub async fn block_admin_employee_routes(request: Request, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    if let Some(user) = request.extensions().get::<UserSession>() {
+        if user.role.is_admin() && admin_blocked_request(&method, &uri) {
+            if method == Method::GET || method == Method::HEAD {
+                return Redirect::to(ADMIN_HOME).into_response();
+            }
+            return AppError::Forbidden.into_response();
+        }
+    }
+    next.run(request).await
 }

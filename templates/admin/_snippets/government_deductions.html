@@ -1,0 +1,45 @@
+{# Snippet for settings.html — insert before "Payroll accounting" heading #}
+    <h2>Government auto-deductions</h2>
+    <p class="hint">When enabled, draft payroll runs automatically compute employee-share SSS, PhilHealth, Pag-IBIG, and withholding tax from monthly basic salary. Manual amounts are never overwritten.</p>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_sss" value="on" {% if content.settings.auto_deduct_sss %}checked{% endif %}>
+      Auto-deduct SSS
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_phic" value="on" {% if content.settings.auto_deduct_phic %}checked{% endif %}>
+      Auto-deduct PhilHealth
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_hdmf" value="on" {% if content.settings.auto_deduct_hdmf %}checked{% endif %}>
+      Auto-deduct Pag-IBIG
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="auto_deduct_wht" value="on" {% if content.settings.auto_deduct_wht %}checked{% endif %}>
+      Auto-deduct withholding tax
+    </label>
+
+{# Snippet for payroll_run.html — insert after attendance_stale alert #}
+{% if content.is_draft and content.gov_auto_enabled %}
+{% if content.has_gov_preflight_warnings %}
+<div class="alert alert-warning">
+  <strong>Government deductions need attention</strong>
+  {% if content.preflight_stale_gov %}<p>{{ content.preflight_stale_gov }} line(s) have stale auto-calculated government deductions.</p>{% endif %}
+  {% if content.preflight_missing_gov %}<p>{{ content.preflight_missing_gov }} line(s) are missing expected auto-calculated government deductions.</p>{% endif %}
+  {% if content.preflight_disabled_auto %}<p>{{ content.preflight_disabled_auto }} line(s) still have auto deductions for disabled benefit types.</p>{% endif %}
+  <form method="post" action="/admin/payroll/{{ content.run_id }}/recalculate-government-deductions" class="inline-form">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn btn-secondary">Recalculate government deductions</button>
+  </form>
+</div>
+{% elif content.is_draft %}
+<p class="hint">Government auto-deductions are enabled in <a href="/admin/settings">Settings</a>.
+  <form method="post" action="/admin/payroll/{{ content.run_id }}/recalculate-government-deductions" class="inline-form">
+    {% include "partials/csrf_field.html" %}
+    <button type="submit" class="btn btn-small btn-secondary">Recalculate</button>
+  </form>
+</p>
+{% endif %}
+{% endif %}
+
+{# Snippet for payroll_line_deductions.html — add is_auto flag in handler, show hint on fieldset #}
+      {% if dt.is_auto %}<p class="hint">Auto-calculated — edit amount to override; recalculate from run page restores defaults.</p>{% endif %}

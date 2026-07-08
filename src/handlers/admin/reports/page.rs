@@ -55,6 +55,7 @@ fn build_report_rows(
                 vacation_days => row.vacation_days,
                 official_leave_days => row.official_leave_days,
                 offset_days => row.offset_days,
+                lwop_days => row.lwop_days,
                 no_show_days => row.no_show_days,
             }
         })

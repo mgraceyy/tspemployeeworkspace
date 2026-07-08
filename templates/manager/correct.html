@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page %}
 <section class="page-header">
-  <h1>{% if content.form.is_new %}Add Time Entry{% else %}Correct Time Entry{% endif %}</h1>
+  <h1>{% if content.form.is_new %}Add time entry{% else %}Edit time entry{% endif %}</h1>
   <p class="muted">{{ content.form.employee_name }} · {{ content.form.work_date }}</p>
 </section>
 
@@ -39,7 +39,7 @@
     </label>
     <p class="hint">Corrected OT will require re-approval. All changes are logged.</p>
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Correction</button>
+      <button type="submit" class="btn btn-primary">Save changes</button>
       <a href="/manager/team/{{ content.form.employee_id }}" class="btn">Cancel</a>
     </div>
   </form>

@@ -1,56 +1,71 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Requirements — {{ content.full_name }}</h1>
-  <p class="muted">{{ content.employee_code }}</p>
-  <p>
-    <a href="/admin/employees/{{ content.employee_id }}/profile">← Profile</a>
-    · <a href="/admin/employees/{{ content.employee_id }}">Account</a>
-  </p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="/admin/employees">Employees</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <a href="/admin/employees/{{ content.employee_id }}/profile">{{ content.employee_code }}</a>
+      <span class="breadcrumb-sep" aria-hidden="true">/</span>
+      <span>Requirements</span>
+    </nav>
+    <h1>{{ content.full_name }}</h1>
+    <p class="page-hero-lead">Review submitted employment requirements.</p>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/admin/employees/{{ content.employee_id }}/profile" class="btn">Profile</a>
+    <a href="/admin/employees/{{ content.employee_id }}" class="btn">Account</a>
+  </div>
+</header>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Requirement</th><th>Status</th><th>Employee Note</th><th>File</th><th>Submitted</th><th>Expires</th><th>Review</th></tr>
-    </thead>
-    <tbody>
-      {% for req in content.requirements %}
-      <tr>
-        <td><strong>{{ req.name }}</strong><br><span class="muted">{{ req.description }}</span></td>
-        <td>{{ req.status }}</td>
-        <td>{{ req.employee_note or "—" }}</td>
-        <td>
-          {% if req.has_file %}
-          <a href="/admin/employees/{{ content.employee_id }}/requirements/{{ req.id }}/file">{{ req.file_name }}</a>
-          {% if req.file_size %}<br><span class="muted">{{ req.file_size }}</span>{% endif %}
-          {% else %}—{% endif %}
-        </td>
-        <td>{{ req.submitted_at or "—" }}</td>
-        <td>
-          {% if req.is_expired %}
-          <span class="badge badge-expired">Expired</span>
-          {% elif req.expires_at %}
-          {{ req.expires_at }}
-          {% else %}—{% endif %}
-        </td>
-        <td>
-          {% if req.can_review %}
-          <form method="post" action="/admin/employees/{{ content.employee_id }}/requirements/{{ req.id }}/review" class="actions">
-            {% include "partials/csrf_field.html" %}
-            <input type="text" name="note" placeholder="Note" class="input-small">
-            <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
-            <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
-          </form>
-          {% elif req.admin_note %}
-          <span class="muted">{{ req.admin_note }}</span>
-          {% else %}—{% endif %}
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="7" class="muted">No requirements.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <h2>Requirement submissions</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Requirement</th><th>Status</th><th>Note</th><th>File</th><th>Submitted</th><th>Expires</th><th>Review</th></tr>
+      </thead>
+      <tbody>
+        {% for req in content.requirements %}
+        <tr>
+          <td><strong>{{ req.name }}</strong><br><span class="muted">{{ req.description }}</span></td>
+          <td>{{ req.status }}</td>
+          <td>{{ req.employee_note or "—" }}</td>
+          <td>
+            {% if req.has_file %}
+            <a href="/admin/employees/{{ content.employee_id }}/requirements/{{ req.id }}/file">{{ req.file_name }}</a>
+            {% if req.file_size %}<br><span class="muted">{{ req.file_size }}</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>{{ req.submitted_at or "—" }}</td>
+          <td>
+            {% if req.is_expired %}
+            <span class="badge badge-expired">Expired</span>
+            {% elif req.expires_at %}
+            {{ req.expires_at }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if req.can_review %}
+            <form method="post" action="/admin/employees/{{ content.employee_id }}/requirements/{{ req.id }}/review" class="admin-review-form">
+              {% include "partials/csrf_field.html" %}
+              <input type="text" name="note" placeholder="Note" class="input-small">
+              <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
+              <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
+            </form>
+            {% elif req.admin_note %}
+            <span class="muted">{{ req.admin_note }}</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="muted empty-cell">No requirements assigned.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

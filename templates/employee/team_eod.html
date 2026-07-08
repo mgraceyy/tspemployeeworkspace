@@ -1,46 +1,69 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Team EOD</h1>
-  <p class="muted">Today: {{ content.today }}{% if content.has_department %} · Department: {{ content.department }}{% endif %}</p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Team EOD</h1>
+    <p class="page-hero-lead">See what your teammates submitted today and browse recent updates.</p>
+    <div class="page-hero-meta">
+      <span class="stat-pill">{{ content.today }}</span>
+      {% if content.has_team %}
+      <span class="stat-pill">{{ content.team_scope }}</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/me/eod" class="btn">My EOD</a>
+  </div>
+</header>
 
-{% if not content.has_department %}
-<div class="alert alert-info">Your department is not set yet. Ask your admin to assign a department on your profile.</div>
+{% if not content.has_team %}
+<div class="alert alert-info">No manager is assigned to you yet. Ask your admin to set your manager on the employee account so you can see your team's EOD updates.</div>
 {% else %}
 
-<section class="panel">
-  <h2>Today's Submissions</h2>
+<section class="data-panel eod-team-panel">
+  <div class="data-panel-header">
+    <div class="data-panel-title">
+      <h2>Today's submissions</h2>
+      <p class="data-panel-desc">Reports submitted by your teammates for today.</p>
+    </div>
+  </div>
   {% if content.reports %}
-  {% for report in content.reports %}
-  <article class="eod-card">
-    <h3>{{ report.full_name }} ({{ report.employee_code }})</h3>
-    <p class="muted">Submitted {{ report.submitted_at }}</p>
-    {% if report.summary %}<p>{{ report.summary }}</p>{% endif %}
-    {% if report.tasks %}
-    <ul class="eod-task-list">
-      {% for task in report.tasks %}
-      <li><span class="badge">{{ task.kind }}</span> {{ task.title }}</li>
-      {% endfor %}
-    </ul>
-    {% endif %}
-  </article>
-  {% endfor %}
+  <div class="eod-card-grid">
+    {% for report in content.reports %}
+    <article class="eod-card">
+      <header class="eod-card-header">
+        <h3>{{ report.full_name }}</h3>
+        <span class="muted eod-card-meta">{{ report.employee_code }} · {{ report.submitted_at }}</span>
+      </header>
+      {% if report.summary %}<p class="eod-card-summary">{{ report.summary }}</p>{% endif %}
+      {% if report.tasks %}
+      <ul class="eod-task-list">
+        {% for task in report.tasks %}
+        <li><span class="badge badge-{{ task.kind | lower }}">{{ task.kind }}</span> {{ task.title }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
   {% else %}
   <p class="muted">No teammates have submitted EOD for today yet.</p>
   {% endif %}
 </section>
 
-<section class="panel">
-  <h2>Recent (7 days)</h2>
+<section class="data-panel eod-team-panel">
+  <div class="data-panel-header">
+    <h2>Recent (7 days)</h2>
+  </div>
   {% if content.recent %}
   <div class="table-wrap">
-    <table>
+    <table class="eod-history-table">
       <thead><tr><th>Date</th><th>Employee</th><th>Summary</th></tr></thead>
       <tbody>
         {% for row in content.recent %}
         <tr>
-          <td>{{ row.report_date }}</td>
+          <td class="eod-history-date">{{ row.report_date }}</td>
           <td>{{ row.full_name }} ({{ row.employee_code }})</td>
           <td>{{ row.summary or "—" }}</td>
         </tr>
@@ -49,7 +72,7 @@
     </table>
   </div>
   {% else %}
-  <p class="muted">No recent submissions from your department.</p>
+  <p class="muted">No recent submissions from your team.</p>
   {% endif %}
 </section>
 {% endif %}

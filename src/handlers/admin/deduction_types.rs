@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::AppResult;
-use crate::handlers::flash::redirect_with_flash;
+use crate::handlers::flash::redirect_with_flash_from_result;
 use crate::handlers::render::{render_page, HtmlPage};
 use crate::services::{
     audit::log_action,
@@ -64,19 +64,24 @@ pub async fn create_deduction_type_action(
     AuthUser(user): AuthUser,
     Form(form): Form<DeductionTypeForm>,
 ) -> AppResult<Redirect> {
-    let created = create_deduction_type(&state.pool, &form.code, &form.name).await?;
-    log_action(
-        &state.pool,
-        user.employee_id,
-        "deduction_type.created",
-        &format!("Created deduction type {} ({})", created.code, created.name),
-    )
-    .await?;
-    redirect_with_flash(
+    let result: AppResult<()> = async {
+        let created = create_deduction_type(&state.pool, &form.code, &form.name).await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            "deduction_type.created",
+            &format!("Created deduction type {} ({})", created.code, created.name),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result(
         &session,
         "/admin/deduction-types",
-        "success",
         "Deduction type created",
+        result,
     )
     .await
 }
@@ -89,27 +94,33 @@ pub async fn toggle_deduction_type_action(
     Form(form): Form<std::collections::HashMap<String, String>>,
 ) -> AppResult<Redirect> {
     let activate = form.get("activate").map(|s| s == "true").unwrap_or(false);
-    set_deduction_type_active(&state.pool, type_id, activate).await?;
-    log_action(
-        &state.pool,
-        user.employee_id,
-        if activate {
-            "deduction_type.activated"
-        } else {
-            "deduction_type.deactivated"
-        },
-        &format!("Deduction type {type_id} set active={activate}"),
-    )
-    .await?;
-    redirect_with_flash(
+    let success_message = if activate {
+        "Deduction type activated"
+    } else {
+        "Deduction type deactivated"
+    };
+    let result: AppResult<()> = async {
+        set_deduction_type_active(&state.pool, type_id, activate).await?;
+        log_action(
+            &state.pool,
+            user.employee_id,
+            if activate {
+                "deduction_type.activated"
+            } else {
+                "deduction_type.deactivated"
+            },
+            &format!("Deduction type {type_id} set active={activate}"),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+
+    redirect_with_flash_from_result(
         &session,
         "/admin/deduction-types",
-        "success",
-        if activate {
-            "Deduction type activated"
-        } else {
-            "Deduction type deactivated"
-        },
+        success_message,
+        result,
     )
     .await
 }

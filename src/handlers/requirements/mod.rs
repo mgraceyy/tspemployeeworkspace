@@ -3,6 +3,8 @@ mod common;
 mod employee;
 mod manager;
 
+pub(crate) use common::build_requirement_rows;
+
 pub use admin::{
     admin_employee_requirements, admin_types_page, download_admin_requirement_file,
     review_employee_requirement, save_requirement_type, RequirementTypeForm, ReviewRequirementForm,

@@ -109,7 +109,7 @@ impl Config {
         let database_max_connections = std::env::var("DATABASE_MAX_CONNECTIONS")
             .ok()
             .and_then(|value| value.parse().ok())
-            .unwrap_or(5);
+            .unwrap_or(15);
         let log_json = std::env::var("LOG_FORMAT")
             .map(|value| value.eq_ignore_ascii_case("json"))
             .unwrap_or(false);

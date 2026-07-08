@@ -10,6 +10,7 @@ pub use report::{
 };
 pub use tasks::{list_tasks, parse_task_lines, tasks_to_textareas, EodTaskInput};
 pub use team::{
-    build_eod_weekly_csv, count_missing_team_eod, list_department_eod, list_department_eod_recent,
-    list_team_eod_export_rows, list_team_eod_status, EodExportRow, TeamEodStatus,
+    build_eod_weekly_csv, can_view_team_eod_report, count_missing_team_eod,
+    list_team_eod_export_rows, list_team_eod_recent_submissions, list_team_eod_status,
+    list_team_eod_submissions, EodExportRow, TeamEodStatus,
 };

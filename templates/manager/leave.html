@@ -1,35 +1,116 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Leave Requests</h1>
-  <p class="muted">Review and approve or reject pending leave requests from your team.</p>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Leave Requests</h1>
+    <p class="page-hero-lead">Review pending requests and revoke approved leave while the pay period is still open.</p>
+    <div class="page-hero-meta">
+      {% if content.pending_count > 0 %}
+      <span class="stat-pill stat-pill-warn">{{ content.pending_count }} pending</span>
+      {% else %}
+      <span class="stat-pill">No pending requests</span>
+      {% endif %}
+      <span class="stat-pill">{{ content.approved_count }} recently approved</span>
+    </div>
+  </div>
+</header>
+
+<section class="data-panel leave-panel leave-panel-pending">
+  <div class="data-panel-header">
+    <h2>Pending review</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table class="leave-table leave-table-manager">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Balances</th>
+          <th>Dates</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Review</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for req in content.pending %}
+        <tr>
+          <td class="leave-employee">
+            <strong>{{ req.full_name }}</strong>
+            <span class="muted leave-employee-code">{{ req.employee_code }}</span>
+          </td>
+          <td class="leave-balances">
+            <span class="leave-balance-pill">{{ req.vacation_balance }} vac</span>
+            <span class="leave-balance-pill">{{ req.sick_balance }} sick</span>
+          </td>
+          <td class="leave-dates">{{ req.dates_label }}</td>
+          <td><span class="badge badge-{{ req.leave_type_key }}">{{ req.leave_type }}</span></td>
+          <td class="leave-reason">{{ req.reason or "—" }}</td>
+          <td>
+            <form method="post" action="/manager/leave/{{ req.id }}/review" class="leave-review-form">
+              {% include "partials/csrf_field.html" %}
+              <input type="text" name="note" placeholder="Optional note" class="input-small">
+              <div class="leave-review-actions">
+                <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
+                <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted leave-empty">No pending leave requests.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Employee</th><th>Dates</th><th>Type</th><th>Employee reason</th><th>Review</th></tr>
-    </thead>
-    <tbody>
-      {% for req in content.pending %}
-      <tr>
-        <td><strong>{{ req.full_name }}</strong><br><span class="muted">{{ req.employee_code }}</span></td>
-        <td>{{ req.start_date }} — {{ req.end_date }}</td>
-        <td>{{ req.leave_type }}</td>
-        <td>{{ req.reason or "—" }}</td>
-        <td>
-          <form method="post" action="/manager/leave/{{ req.id }}/review" class="actions">
-            {% include "partials/csrf_field.html" %}
-            <input type="text" name="note" placeholder="Note" class="input-small">
-            <button type="submit" name="action" value="approve" class="btn btn-small btn-primary">Approve</button>
-            <button type="submit" name="action" value="reject" class="btn btn-small btn-danger">Reject</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="5" class="muted">No pending leave requests.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<section class="data-panel leave-panel">
+  <div class="data-panel-header">
+    <h2>Recently approved</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table class="leave-table leave-table-manager">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Dates</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for req in content.approved %}
+        <tr>
+          <td class="leave-employee">
+            <strong>{{ req.full_name }}</strong>
+            <span class="muted leave-employee-code">{{ req.employee_code }}</span>
+          </td>
+          <td class="leave-dates">{{ req.dates_label }}</td>
+          <td><span class="badge badge-{{ req.leave_type_key }}">{{ req.leave_type }}</span></td>
+          <td class="leave-reason">{{ req.reason or "—" }}</td>
+          <td class="leave-actions">
+            {% if req.can_revoke %}
+            <form method="post" action="/manager/leave/{{ req.id }}/revoke" class="inline-form">
+              {% include "partials/csrf_field.html" %}
+              <button type="submit" class="btn btn-small btn-danger"
+                onclick="return confirm('Revoke this approved leave? Balance will be restored and attendance marks removed.');">
+                Revoke
+              </button>
+            </form>
+            {% else %}
+            <span class="muted leave-revoke-hint">Closed period</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="muted leave-empty">No approved leave on file.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

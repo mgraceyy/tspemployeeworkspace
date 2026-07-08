@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block page %}
+<section class="page-header">
+  <h1>Payroll Runs</h1>
+  <p class="muted">Create gross-pay runs for <strong>closed</strong> full pay periods. Enter deductions per employee, then finalize to lock net pay and publish payslips. Draft lines are fixed at creation — void and recreate if underlying data changes.</p>
+  <p class="hint">Government benefit deductions (SSS, PhilHealth, Pag-IBIG, withholding tax) can be auto-calculated on draft runs when enabled in <a href="/admin/settings">Company Settings</a>.</p>
+  <p><a href="/admin/reports">← Attendance reports &amp; period close</a></p>
+</section>
+
+{% if content.missing_compensation %}
+<div class="alert alert-warning">
+  <strong>Missing compensation</strong> — these active employees have no compensation effective on period end and will be <em>skipped</em> in draft runs:
+  <strong>{{ content.missing_compensation | join(', ') }}</strong>.
+  <a href="/admin/compensation/import">Import compensation</a> or set per employee before finalizing payroll.
+</div>
+{% endif %}
+
+<section class="panel">
+  <h2>Existing runs</h2>
+  {% if content.runs %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Period</th><th>Status</th><th>Employees</th><th>Total gross</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for run in content.runs %}
+        <tr>
+          <td>{{ run.period_label }}</td>
+          <td>{{ run.status }}</td>
+          <td>{{ run.line_count }}</td>
+          <td>PHP {{ run.total_gross }}</td>
+          <td><a href="/admin/payroll/{{ run.id }}" class="btn btn-small">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No payroll runs yet.</p>
+  {% endif %}
+</section>
+
+{% if content.candidates %}
+<section class="panel">
+  <h2>Create draft run</h2>
+  <p class="hint">Only closed full pay periods without an existing draft or finalized run are listed.</p>
+  <ul class="employee-list">
+    {% for c in content.candidates %}
+    <li>
+      <strong>{{ c.label }}</strong>
+      {% if c.note %}<span class="muted"> — {{ c.note }}</span>{% endif %}
+      <form method="post" action="/admin/payroll" class="inline-form">
+        {% include "partials/csrf_field.html" %}
+        <input type="hidden" name="period_start" value="{{ c.start }}">
+        <input type="hidden" name="period_end" value="{{ c.end }}">
+        <button type="submit" class="btn btn-small btn-primary" {% if not content.can_create %}disabled title="No closed periods available"{% endif %}>
+          Create draft
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<section class="panel">
+  <p class="muted">No closed periods are ready for payroll. Close a full pay period in <a href="/admin/reports">Reports</a> first.</p>
+</section>
+{% endif %}
+{% endblock %}

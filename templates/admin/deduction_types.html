@@ -1,27 +1,38 @@
 {% extends "base.html" %}
+{% block main_class %}main-wide{% endblock %}
 {% block page %}
-<section class="page-header">
-  <h1>Deduction Types</h1>
-  <p class="muted">Manage payroll deduction categories (SSS, PhilHealth, loans, etc.). Inactive types are hidden from new deduction entry but remain on finalized runs.</p>
-  <p><a href="/admin/payroll">← Payroll</a></p>
-</section>
+<header class="page-hero">
+  <div class="page-hero-content">
+    <h1>Deduction Types</h1>
+    <p class="page-hero-lead">Manage payroll deduction categories. Inactive types are hidden from new entry but remain on finalized runs.</p>
+  </div>
+  <div class="page-hero-actions">
+    <a href="/admin/payroll" class="btn">Payroll runs</a>
+  </div>
+</header>
 
-<section class="panel narrow-panel">
-  <h2>Add deduction type</h2>
-  <form method="post" action="/admin/deduction-types" class="stack">
+<section class="data-panel admin-form-panel">
+  <div class="data-panel-header">
+    <h2>Add deduction type</h2>
+  </div>
+  <form method="post" action="/admin/deduction-types" class="admin-inline-form">
     {% include "partials/csrf_field.html" %}
-    <label>Code
+    <label class="filter-select stack">
+      Code
       <input type="text" name="code" required pattern="[A-Za-z0-9_]+" placeholder="e.g. SSS">
     </label>
-    <label>Name
+    <label class="filter-select stack">
+      Name
       <input type="text" name="name" required placeholder="e.g. SSS contribution">
     </label>
     <button type="submit" class="btn btn-primary">Create</button>
   </form>
 </section>
 
-<section class="panel">
-  <h2>Existing types</h2>
+<section class="data-panel">
+  <div class="data-panel-header">
+    <h2>Existing types</h2>
+  </div>
   {% if content.types %}
   <div class="table-wrap">
     <table>
@@ -33,7 +44,7 @@
         <tr>
           <td>{{ t.code }}</td>
           <td>{{ t.name }}</td>
-          <td>{% if t.is_active %}Active{% else %}Inactive{% endif %}</td>
+          <td>{% if t.is_active %}<span class="badge badge-approved">Active</span>{% else %}<span class="muted">Inactive</span>{% endif %}</td>
           <td>
             <form method="post" action="/admin/deduction-types/{{ t.id }}/toggle" class="inline-form">
               {% include "partials/csrf_field.html" %}

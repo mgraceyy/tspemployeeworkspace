@@ -125,6 +125,74 @@ async fn employee_cannot_access_admin_pages() {
 }
 
 #[tokio::test]
+async fn admin_login_redirects_to_employee_management() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let code = unique_code("ADMN");
+    create_ready_employee(
+        &pool,
+        &code,
+        "Admin HTTP Test",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("create admin");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &code, TEST_PIN).await;
+
+    let (status, _, _, headers) = get_with_headers(&mut app, "/", &cookies).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        header_value(&headers, "location"),
+        Some("/manager".to_string())
+    );
+
+    let (status, body, _) = get(&mut app, "/manager", &cookies).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Manager Dashboard"));
+
+    cleanup_employee(&pool, &code).await;
+}
+
+#[tokio::test]
+async fn admin_cannot_clock_in() {
+    let Some(pool) = test_pool().await else {
+        eprintln!("skipping http test: DATABASE_URL not available");
+        return;
+    };
+
+    let code = unique_code("ACLK");
+    create_ready_employee(
+        &pool,
+        &code,
+        "Admin Clock Block",
+        TEST_PIN,
+        UserRole::Admin,
+        None,
+    )
+    .await
+    .expect("create admin");
+
+    let mut app = test_app(pool.clone()).await;
+    let cookies = login_as(&mut app, &code, TEST_PIN).await;
+
+    let (status, html, _) = get(&mut app, "/admin/employees", &cookies).await;
+    assert_eq!(status, StatusCode::OK);
+    let csrf = extract_csrf_token(&html).expect("csrf on admin page");
+    let (status, _, _) =
+        post_form(&mut app, "/clock/in", &cookies, &format!("csrf_token={csrf}")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    cleanup_employee(&pool, &code).await;
+}
+
+#[tokio::test]
 async fn login_with_valid_credentials_redirects_home() {
     let Some(pool) = test_pool().await else {
         eprintln!("skipping http test: DATABASE_URL not available");
