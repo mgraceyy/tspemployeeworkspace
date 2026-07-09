@@ -22,6 +22,25 @@ fn unique_code(prefix: &str) -> String {
     format!("{prefix}{}", &Uuid::new_v4().simple().to_string()[..8]).to_uppercase()
 }
 
+async fn cleanup_payroll_period(pool: &sqlx::PgPool, period_start: Date, period_end: Date) {
+    let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id IN (SELECT id FROM payroll_runs WHERE period_start = $1 AND period_end = $2)")
+        .bind(period_start)
+        .bind(period_end)
+        .execute(pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM payroll_runs WHERE period_start = $1 AND period_end = $2")
+        .bind(period_start)
+        .bind(period_end)
+        .execute(pool)
+        .await;
+    let _ =
+        sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1 AND period_end = $2")
+            .bind(period_start)
+            .bind(period_end)
+            .execute(pool)
+            .await;
+}
+
 async fn cleanup_employee(pool: &sqlx::PgPool, code: &str) {
     let _ = sqlx::query("DELETE FROM eod_reports WHERE employee_id IN (SELECT id FROM employees WHERE employee_code = $1)")
         .bind(code)
@@ -77,7 +96,7 @@ async fn admin_can_create_employee_via_http() {
     let (_, employees_html, cookies) = get(&mut app, "/admin/employees", &cookies).await;
     let csrf = extract_csrf_token(&employees_html).expect("csrf");
     let body = format!(
-        "employee_code={new_code}&full_name=HTTP%20Created%20User&pin={TEST_PIN}&role=employee&csrf_token={csrf}"
+        "employee_code={new_code}&full_name=HTTP%20Created%20User&pin={TEST_PIN}&role=employee&department=Engineering&csrf_token={csrf}"
     );
     let (status, _, _) = post_form(&mut app, "/admin/employees", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -358,7 +377,7 @@ async fn manager_can_approve_ot_via_http() {
     let work_date = Date::from_calendar_date(2099, Month::March, 8).unwrap();
     let entry_id: Uuid = sqlx::query_scalar(
         "INSERT INTO time_entries
-            (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_reason)
+            (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_note)
          VALUES ($1, $2, 480, 45, 'pending', 'on_time', 'Project deadline')
          RETURNING id",
     )
@@ -382,7 +401,7 @@ async fn manager_can_approve_ot_via_http() {
     );
 
     let ot_status: OtStatus =
-        sqlx::query_scalar("SELECT ot_status::text FROM time_entries WHERE id = $1")
+        sqlx::query_scalar("SELECT ot_status FROM time_entries WHERE id = $1")
             .bind(entry_id)
             .fetch_one(&pool)
             .await
@@ -553,7 +572,7 @@ async fn manager_can_reject_leave_via_http() {
     let (_, leave_html, emp_cookies) = get(&mut app, "/me/leave", &emp_cookies).await;
     let csrf = extract_csrf_token(&leave_html).expect("csrf");
     let body = format!(
-        "start_date={start}&end_date={end}&leave_type=offset&reason=Makeup%20hours&csrf_token={csrf}"
+        "start_date={start}&end_date={end}&day_portion=full_day&leave_type=offset&reason=Makeup%20hours&csrf_token={csrf}"
     );
     let (status, _, _) = post_form(&mut app, "/me/leave", &emp_cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -575,7 +594,7 @@ async fn manager_can_reject_leave_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: String =
-        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id = $1")
             .bind(request_id)
             .fetch_one(&pool)
             .await
@@ -722,7 +741,7 @@ async fn manager_can_reject_ot_via_http() {
     let work_date = Date::from_calendar_date(2099, Month::March, 9).unwrap();
     let entry_id: Uuid = sqlx::query_scalar(
         "INSERT INTO time_entries
-            (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_reason)
+            (employee_id, work_date, regular_minutes, ot_minutes, ot_status, attendance, ot_note)
          VALUES ($1, $2, 480, 30, 'pending', 'on_time', 'Unplanned stay')
          RETURNING id",
     )
@@ -746,7 +765,7 @@ async fn manager_can_reject_ot_via_http() {
     );
 
     let ot_status: OtStatus =
-        sqlx::query_scalar("SELECT ot_status::text FROM time_entries WHERE id = $1")
+        sqlx::query_scalar("SELECT ot_status FROM time_entries WHERE id = $1")
             .bind(entry_id)
             .fetch_one(&pool)
             .await
@@ -995,7 +1014,7 @@ async fn employee_can_save_and_submit_eod_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: EodReportStatus =
-        sqlx::query_scalar("SELECT status::text FROM eod_reports WHERE employee_id = $1")
+        sqlx::query_scalar("SELECT status FROM eod_reports WHERE employee_id = $1")
             .bind(employee.id)
             .fetch_one(&pool)
             .await
@@ -1011,7 +1030,7 @@ async fn employee_can_save_and_submit_eod_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: EodReportStatus =
-        sqlx::query_scalar("SELECT status::text FROM eod_reports WHERE employee_id = $1")
+        sqlx::query_scalar("SELECT status FROM eod_reports WHERE employee_id = $1")
             .bind(employee.id)
             .fetch_one(&pool)
             .await
@@ -1083,7 +1102,7 @@ async fn admin_can_unlock_eod_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: EodReportStatus =
-        sqlx::query_scalar("SELECT status::text FROM eod_reports WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM eod_reports WHERE id = $1")
             .bind(report_id)
             .fetch_one(&pool)
             .await
@@ -1289,6 +1308,8 @@ async fn admin_can_finalize_payroll_run_via_http() {
         .expect("upsert comp");
     }
 
+    cleanup_payroll_period(&pool, period_start, period_end).await;
+
     dtr::services::payroll_controls::close_pay_period(
         &pool,
         period_start,
@@ -1331,8 +1352,18 @@ async fn admin_can_finalize_payroll_run_via_http() {
         .await;
 
     let run_path = format!("/admin/payroll/{run_id}");
-    let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
-    assert!(run_html.contains("Finalize run"));
+    let (run_status, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
+    assert_eq!(
+        run_status,
+        StatusCode::OK,
+        "GET {run_path} failed: {}",
+        run_html.chars().take(500).collect::<String>()
+    );
+    assert!(
+        run_html.contains("Finalize run"),
+        "run page missing finalize control: {}",
+        run_html.chars().take(800).collect::<String>()
+    );
     assert!(run_html.contains("Deductions"));
 
     let line_id: Uuid = sqlx::query_scalar(
@@ -1388,7 +1419,12 @@ async fn admin_can_finalize_payroll_run_via_http() {
 
     let export_path = format!("/admin/payroll/{run_id}/export.csv");
     let (status, export_body, _) = get(&mut app, &export_path, &cookies).await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "export.csv failed: {}",
+        export_body.chars().take(300).collect::<String>()
+    );
     assert!(export_body.contains("Employee Code"));
     assert!(export_body.contains("Net Pay"));
     assert!(export_body.contains(&emp_code.to_uppercase()));

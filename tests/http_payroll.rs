@@ -11,7 +11,8 @@ use time::{Date, Month};
 use uuid::Uuid;
 
 use common::{
-    create_ready_employee, extract_csrf_token, get, login_as, post_form, test_app, test_pool,
+    create_ready_employee, extract_csrf_token, get, has_error_flash, login_as, post_form, test_app,
+    test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -181,8 +182,8 @@ async fn admin_can_void_payroll_run_via_http() {
     .expect("run");
 
     let run_path = format!("/admin/payroll/{run_id}");
-    let (_, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
-    let csrf = extract_csrf_token(&run_html).expect("csrf");
+    let (run_status, run_html, cookies) = get(&mut app, &run_path, &cookies).await;
+    let csrf = common::expect_csrf_token(&run_path, run_status, &run_html);
     let (status, _, _) = post_form(
         &mut app,
         &format!("/admin/payroll/{run_id}/void"),
@@ -263,12 +264,15 @@ async fn reopen_blocked_by_draft_payroll_via_http() {
         format_date(period_start),
         format_date(period_end)
     );
-    let (status, body, _) =
+    let (status, _, cookies) =
         post_form(&mut app, "/admin/reports/reopen-period", &cookies, &body).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, page, _) = get(&mut app, &reports_url, &cookies).await;
+    assert!(has_error_flash(&page));
     assert!(
-        body.contains("draft payroll run") || body.contains("Cannot reopen"),
-        "expected reopen blocked message, got: {body}"
+        page.contains("draft payroll run") || page.contains("Cannot reopen"),
+        "expected reopen blocked message, got: {}",
+        page.chars().take(300).collect::<String>()
     );
 
     cleanup_payroll_period(&pool, period_start, period_end).await;
@@ -357,11 +361,14 @@ async fn deductions_cannot_exceed_gross_via_http() {
     let (_, deductions_html, cookies) = get(&mut app, &deductions_path, &cookies).await;
     let csrf = extract_csrf_token(&deductions_html).expect("csrf");
     let body = format!("amount_sss=999999.00&csrf_token={csrf}");
-    let (status, body, _) = post_form(&mut app, &deductions_path, &cookies, &body).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, cookies) = post_form(&mut app, &deductions_path, &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, page, _) = get(&mut app, &deductions_path, &cookies).await;
+    assert!(has_error_flash(&page));
     assert!(
-        body.contains("cannot exceed gross") || body.contains("Total deductions"),
-        "expected deduction cap error, got: {body}"
+        page.contains("cannot exceed gross") || page.contains("Total deductions"),
+        "expected deduction cap error, got: {}",
+        page.chars().take(300).collect::<String>()
     );
 
     cleanup_payroll_period(&pool, period_start, period_end).await;
@@ -407,11 +414,14 @@ async fn non_canonical_closed_period_rejects_draft_via_http() {
         format_date(period_start),
         format_date(bad_end)
     );
-    let (status, body, _) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, cookies) = post_form(&mut app, "/admin/payroll", &cookies, &body).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, page, _) = get(&mut app, "/admin/payroll", &cookies).await;
+    assert!(has_error_flash(&page));
     assert!(
-        body.contains("full") || body.contains("pay period"),
-        "expected canonical rejection, got: {body}"
+        page.contains("full") || page.contains("pay period") || page.contains("Payroll requires"),
+        "expected canonical rejection, got: {}",
+        page.chars().take(300).collect::<String>()
     );
 
     cleanup_payroll_period(&pool, period_start, bad_end).await;
@@ -528,13 +538,29 @@ async fn finalized_run_exports_csv_bank_and_pdf_via_http() {
     .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
 
+    let run_status: String =
+        sqlx::query_scalar("SELECT status::text FROM payroll_runs WHERE id = $1")
+            .bind(run_id)
+            .fetch_one(&pool)
+            .await
+            .expect("run status");
+    assert_eq!(
+        run_status, "finalized",
+        "finalize was blocked — check over-gross or stale attendance on the draft run"
+    );
+
     let (status, payroll_csv, _) = get(
         &mut app,
         &format!("/admin/payroll/{run_id}/export.csv"),
         &cookies,
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "export.csv failed: {}",
+        payroll_csv.chars().take(300).collect::<String>()
+    );
     assert!(payroll_csv.contains("Allowances"));
 
     let (status, bank_csv, _) = get(

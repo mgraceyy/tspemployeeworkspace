@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::UserRole;
-use crate::services::employees::fetch_auth_snapshot;
+use crate::services::employees::{fetch_auth_snapshot, invalidate_auth_snapshot_cache};
 
 pub const SESSION_KEY: &str = "user";
 pub const FLASH_KEY: &str = "flash";
@@ -47,7 +47,7 @@ pub async fn get_active_session(session: &Session) -> AppResult<UserSession> {
 /// Reloads a lightweight auth snapshot (cached per employee) and refreshes the session when fields change.
 pub async fn sync_session_with_db(pool: &PgPool, session: &Session) -> AppResult<UserSession> {
     let cached = get_session(session).await?;
-    let Some(employee) = fetch_auth_snapshot(pool, cached.employee_id).await? else {
+    let Some(mut employee) = fetch_auth_snapshot(pool, cached.employee_id).await? else {
         clear_session(session).await?;
         return Err(AppError::Unauthorized);
     };
@@ -57,8 +57,17 @@ pub async fn sync_session_with_db(pool: &PgPool, session: &Session) -> AppResult
     }
 
     if cached.session_version != employee.session_version {
-        clear_session(session).await?;
-        return Err(AppError::Unauthorized);
+        // Stale in-process snapshot (e.g. after dtr-reset-admin while the server keeps running).
+        invalidate_auth_snapshot_cache(cached.employee_id);
+        let Some(refreshed) = fetch_auth_snapshot(pool, cached.employee_id).await? else {
+            clear_session(session).await?;
+            return Err(AppError::Unauthorized);
+        };
+        employee = refreshed;
+        if cached.session_version != employee.session_version {
+            clear_session(session).await?;
+            return Err(AppError::Unauthorized);
+        }
     }
 
     let fresh = UserSession {

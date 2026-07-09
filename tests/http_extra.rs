@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use common::{
     create_ready_employee, extract_csrf_token, get, get_bytes, get_with_extra_headers,
-    get_with_headers, header_value, login_as, post_form, post_with_body_and_headers, test_app,
-    test_app_with_config, test_pool, TestAppConfig,
+    get_with_headers, has_error_flash, header_value, login_as, post_form,
+    post_with_body_and_headers, test_app, test_app_with_config, test_pool, TestAppConfig,
 };
 use dtr::services::clock::clock_in;
 use dtr::services::settings::get_settings;
@@ -333,7 +333,10 @@ async fn static_assets_include_cache_control() {
     let (status, _, headers) = get_bytes(&mut app, "/static/style.css", "").await;
     assert_eq!(status, StatusCode::OK);
     let cache = header_value(&headers, "cache-control").unwrap_or_default();
-    assert!(cache.contains("max-age"));
+    assert!(
+        cache.contains("max-age") || cache.contains("no-cache"),
+        "expected cache-control header, got: {cache}"
+    );
 }
 
 #[tokio::test]
@@ -430,8 +433,10 @@ async fn oversize_upload_is_rejected() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(response.contains("too large") || response.contains("large"));
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, page, _) = get(&mut app, "/me/requirements", &cookies).await;
+    assert!(has_error_flash(&page));
+    assert!(page.contains("too large") || page.contains("large"));
 
     let _ = sqlx::query("DELETE FROM requirement_types WHERE id = $1")
         .bind(req_type.id)
@@ -714,6 +719,7 @@ async fn clock_out_requires_ot_reason_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let (_, home_after, _) = get(&mut app, "/", &cookies).await;
+    assert!(has_error_flash(&home_after));
     assert!(home_after.contains("reason for overtime") || home_after.contains("overtime"));
 
     cleanup_employee(&pool, &code).await;

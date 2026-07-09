@@ -106,7 +106,7 @@ pub async fn get_line_for_run(
                 l.premium_pay_cents, l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
-                ), 0) AS total_deduction_cents
+                ), 0)::bigint AS total_deduction_cents
          FROM payroll_lines l
          JOIN employees e ON e.id = l.employee_id
          LEFT JOIN employee_profiles p ON p.employee_id = e.id

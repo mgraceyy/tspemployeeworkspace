@@ -10,7 +10,8 @@ use time::Duration;
 use uuid::Uuid;
 
 use common::{
-    create_ready_employee, extract_csrf_token, get, login_as, post_form, test_app, test_pool,
+    create_ready_employee, extract_csrf_token, get, has_error_flash, has_info_flash, login_as,
+    post_form, test_app, test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -28,14 +29,6 @@ async fn cleanup_employee(pool: &sqlx::PgPool, code: &str) {
         .bind(code)
         .execute(pool)
         .await;
-}
-
-fn has_error_flash(html: &str) -> bool {
-    html.contains("alert-error")
-}
-
-fn has_info_flash(html: &str) -> bool {
-    html.contains("alert-info")
 }
 
 #[tokio::test]
@@ -179,6 +172,8 @@ async fn duplicate_employee_create_redirects_with_flash() {
         "unexpected flash: {}",
         after.chars().take(300).collect::<String>()
     );
+
+    cleanup_employee(&pool, &admin_code).await;
 }
 
 #[tokio::test]

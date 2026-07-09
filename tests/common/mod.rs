@@ -3,8 +3,6 @@
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::sync::Mutex;
-
 use axum::{
     body::Body,
     http::{header, HeaderMap, Request, StatusCode},
@@ -46,17 +44,10 @@ impl Default for TestAppConfig {
 
 static MIGRATIONS_DONE: OnceLock<()> = OnceLock::new();
 static TEST_SETUP_POOL: OnceLock<PgPool> = OnceLock::new();
-static TEST_RESET_POOL: OnceLock<PgPool> = OnceLock::new();
-static PREVIOUS_HANDLER_POOL: Mutex<Option<PgPool>> = Mutex::const_new(None);
 
-/// Fixtures use the setup pool; each test_app gets a small handler pool so HTTP
-/// traffic cannot starve create_ready_employee on the setup pool.
-const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 5;
-const TEST_HANDLER_POOL_MAX_CONNECTIONS: u32 = 4;
-const TEST_RESET_POOL_MAX_CONNECTIONS: u32 = 2;
+/// Single shared pool for fixtures and HTTP handlers keeps connection count predictable.
+const TEST_SETUP_POOL_MAX_CONNECTIONS: u32 = 20;
 const SETUP_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-const HANDLER_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-const RESET_POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(10);
 const RESET_MAX_ATTEMPTS: u32 = 5;
 
 fn test_pool_options(max_connections: u32, acquire_timeout: Duration) -> PgPoolOptions {
@@ -95,47 +86,13 @@ async fn setup_pool() -> Result<PgPool, sqlx::Error> {
     Ok(TEST_SETUP_POOL.get().expect("setup pool").clone())
 }
 
-async fn close_previous_handler_pool() {
-    let mut previous = PREVIOUS_HANDLER_POOL.lock().await;
-    if let Some(pool) = previous.take() {
-        pool.close().await;
-    }
-}
-
-async fn new_handler_pool() -> Result<PgPool, sqlx::Error> {
-    close_previous_handler_pool().await;
-    let pool = connect_pool(
-        TEST_HANDLER_POOL_MAX_CONNECTIONS,
-        HANDLER_POOL_ACQUIRE_TIMEOUT,
-        "test handler database",
-    )
-    .await?;
-    *PREVIOUS_HANDLER_POOL.lock().await = Some(pool.clone());
-    Ok(pool)
-}
-
-async fn reset_pool() -> Result<PgPool, sqlx::Error> {
-    if let Some(pool) = TEST_RESET_POOL.get() {
-        return Ok(pool.clone());
-    }
-    let pool = connect_pool(
-        TEST_RESET_POOL_MAX_CONNECTIONS,
-        RESET_POOL_ACQUIRE_TIMEOUT,
-        "test reset database",
-    )
-    .await?;
-    let _ = TEST_RESET_POOL.set(pool);
-    Ok(TEST_RESET_POOL.get().expect("reset pool").clone())
-}
-
 fn shared_rate_limits_enabled() -> bool {
     std::env::var("SHARED_RATE_LIMITS")
         .map(|value| value == "true" || value == "1")
         .unwrap_or(false)
 }
 
-async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
-    let pool = reset_pool().await?;
+async fn try_reset_shared_test_state(pool: &PgPool) -> Result<(), sqlx::Error> {
     let mut conn = pool.acquire().await?;
     sqlx::query("DELETE FROM closed_pay_periods")
         .execute(&mut *conn)
@@ -148,9 +105,9 @@ async fn try_reset_shared_test_state() -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn reset_shared_test_state() {
+pub async fn reset_shared_test_state(pool: &PgPool) {
     for attempt in 1..=RESET_MAX_ATTEMPTS {
-        match try_reset_shared_test_state().await {
+        match try_reset_shared_test_state(pool).await {
             Ok(()) => return,
             Err(error) if attempt < RESET_MAX_ATTEMPTS => {
                 eprintln!("reset shared test state attempt {attempt} failed: {error}");
@@ -224,7 +181,7 @@ pub async fn test_pool() -> Option<PgPool> {
     };
 
     ensure_migrations(&pool).await;
-    reset_shared_test_state().await;
+    reset_shared_test_state(&pool).await;
     Some(pool)
 }
 
@@ -232,13 +189,8 @@ pub async fn test_app(setup_pool: PgPool) -> Router {
     test_app_with_config(setup_pool, TestAppConfig::default()).await
 }
 
-pub async fn test_app_with_config(_setup_pool: PgPool, config: TestAppConfig) -> Router {
-    let pool = new_handler_pool().await.unwrap_or_else(|e| {
-        if std::env::var_os("CI").is_some() {
-            panic!("test handler pool connection failed in CI: {e}");
-        }
-        panic!("test handler pool connection failed: {e}");
-    });
+pub async fn test_app_with_config(setup_pool: PgPool, config: TestAppConfig) -> Router {
+    let pool = setup_pool;
     // Fresh in-memory store per app so sessions never leak across tests.
     let session_store = MemoryStore::default();
 
@@ -374,6 +326,14 @@ pub fn expect_csrf_token(path: &str, status: StatusCode, html: &str) -> String {
             html.chars().take(300).collect::<String>()
         )
     })
+}
+
+pub fn has_error_flash(html: &str) -> bool {
+    html.contains("alert-error")
+}
+
+pub fn has_info_flash(html: &str) -> bool {
+    html.contains("alert-info")
 }
 
 pub fn extract_csrf_token(html: &str) -> Option<String> {

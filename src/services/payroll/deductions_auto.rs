@@ -228,7 +228,7 @@ pub async fn preflight_finalize_run(
 
     for (line_id, employee_id, gross_cents, lwop_days) in lines {
         let total_deductions: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(amount_cents), 0) FROM payroll_deductions WHERE line_id = $1",
+            "SELECT COALESCE(SUM(amount_cents), 0)::bigint FROM payroll_deductions WHERE line_id = $1",
         )
         .bind(line_id)
         .fetch_one(pool)
@@ -425,7 +425,7 @@ async fn apply_government_deductions_for_line(
     }
 
     let manual_gov_total: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(d.amount_cents), 0)
+        "SELECT COALESCE(SUM(d.amount_cents), 0)::bigint
          FROM payroll_deductions d
          JOIN deduction_types t ON t.id = d.deduction_type_id
          WHERE d.line_id = $1
@@ -440,7 +440,7 @@ async fn apply_government_deductions_for_line(
     .map_err(|e| AppError::Internal(e.into()))?;
 
     let existing_non_gov: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(d.amount_cents), 0)
+        "SELECT COALESCE(SUM(d.amount_cents), 0)::bigint
          FROM payroll_deductions d
          JOIN deduction_types t ON t.id = d.deduction_type_id
          WHERE d.line_id = $1 AND t.code NOT IN ('SSS', 'PHIC', 'HDMF', 'WHT')",
@@ -593,7 +593,7 @@ async fn apply_lwop_deduction_for_line(
     }
 
     let other_total: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(SUM(d.amount_cents), 0)
+        "SELECT COALESCE(SUM(d.amount_cents), 0)::bigint
          FROM payroll_deductions d
          JOIN deduction_types t ON t.id = d.deduction_type_id
          WHERE d.line_id = $1

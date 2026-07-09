@@ -16,7 +16,9 @@ pub fn build_payroll_detail_csv(
 
     let mut csv_bytes = Vec::new();
     {
-        let mut writer = csv::Writer::from_writer(&mut csv_bytes);
+        let mut writer = csv::WriterBuilder::new()
+            .flexible(true)
+            .from_writer(&mut csv_bytes);
         writer
             .write_record(["Pay period", period_label])
             .map_err(|e| AppError::Internal(e.into()))?;

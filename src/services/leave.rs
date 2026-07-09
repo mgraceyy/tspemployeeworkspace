@@ -291,7 +291,9 @@ pub async fn revoke_approved_request(
     employee_id: Uuid,
     is_admin: bool,
 ) -> AppResult<LeaveRequestWithEmployee> {
-    assert_can_manage(pool, actor_id, employee_id, is_admin).await?;
+    if actor_id != employee_id {
+        assert_can_manage(pool, actor_id, employee_id, is_admin).await?;
+    }
 
     let dates: (Date, Date) = sqlx::query_as(
         "SELECT start_date, end_date FROM leave_requests

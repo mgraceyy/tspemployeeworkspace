@@ -71,7 +71,7 @@ async fn employee_can_submit_and_cancel_leave_via_http() {
     let (_, leave_html, cookies) = get(&mut app, "/me/leave", &cookies).await;
     let csrf = extract_csrf_token(&leave_html).expect("csrf");
     let body = format!(
-        "start_date={start}&end_date={end}&leave_type=vacation&reason=Family%20trip&csrf_token={csrf}"
+        "start_date={start}&end_date={end}&day_portion=full_day&leave_type=vacation&reason=Family%20trip&csrf_token={csrf}"
     );
     let (status, _, cookies) = post_form(&mut app, "/me/leave", &cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -98,7 +98,7 @@ async fn employee_can_submit_and_cancel_leave_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: LeaveRequestStatus =
-        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id = $1")
             .bind(request_id)
             .fetch_one(&pool)
             .await
@@ -148,7 +148,7 @@ async fn manager_can_approve_leave_via_http() {
     let (_, leave_html, emp_cookies) = get(&mut app, "/me/leave", &emp_cookies).await;
     let csrf = extract_csrf_token(&leave_html).expect("csrf");
     let body = format!(
-        "start_date={start}&end_date={end}&leave_type=sick_leave&reason=Flu&csrf_token={csrf}"
+        "start_date={start}&end_date={end}&day_portion=full_day&leave_type=sick_leave&reason=Flu&csrf_token={csrf}"
     );
     let (status, _, _) = post_form(&mut app, "/me/leave", &emp_cookies, &body).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
@@ -171,7 +171,7 @@ async fn manager_can_approve_leave_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: LeaveRequestStatus =
-        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id = $1")
             .bind(request_id)
             .fetch_one(&pool)
             .await
@@ -261,7 +261,7 @@ async fn manager_can_revoke_approved_leave_via_http() {
     assert_eq!(status, StatusCode::SEE_OTHER);
 
     let status: LeaveRequestStatus =
-        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id = $1")
             .bind(request_id)
             .fetch_one(&pool)
             .await
@@ -384,7 +384,8 @@ async fn manager_can_submit_new_correction_via_http() {
     let cookies = login_as(&mut app, &mgr_code, TEST_PIN).await;
     let (_, correction_html, cookies) = get(&mut app, &correction_path, &cookies).await;
     assert!(
-        correction_html.contains("Add Time Entry")
+        correction_html.contains("Edit Time Entry")
+            || correction_html.contains("Add Time Entry")
             || correction_html.contains("Correct Time Entry")
     );
     let csrf = extract_csrf_token(&correction_html).expect("csrf");

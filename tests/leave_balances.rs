@@ -440,7 +440,7 @@ async fn parallel_leave_review_only_one_outcome() {
     );
 
     let status: dtr::models::LeaveRequestStatus =
-        sqlx::query_scalar("SELECT status::text FROM leave_requests WHERE id = $1")
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id = $1")
             .bind(request_id)
             .fetch_one(&pool)
             .await

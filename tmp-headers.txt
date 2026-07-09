@@ -1,0 +1,11 @@
+HTTP/1.1 303 See Other
+location: /change-pin
+content-security-policy: default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+x-content-type-options: nosniff
+x-frame-options: DENY
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: camera=(), microphone=(), geolocation=()
+set-cookie: id=dzqXuk4dwYva3RNCzmGe0fz2GBx7TvWhuH7hLuJhjWg=5e9zqc554sNpxZE4UXruNA; HttpOnly; SameSite=Lax; Path=/; Max-Age=43200
+content-length: 0
+date: Thu, 09 Jul 2026 09:33:16 GMT
+

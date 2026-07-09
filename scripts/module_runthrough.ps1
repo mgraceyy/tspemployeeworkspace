@@ -17,8 +17,9 @@ function Try-Login($code, $pin) {
     $b = "employee_code=$code&pin=$pin&csrf_token=$csrf"
     $r = Invoke-WebRequest "$Base/login" -Method POST -WebSession $s -Body $b `
         -ContentType "application/x-www-form-urlencoded" -UseBasicParsing
-    $ok = $r.BaseResponse.ResponseUri.AbsolutePath -ne "/login"
-    return @{ Ok = $ok; Session = $s; Detail = $r.BaseResponse.ResponseUri.AbsolutePath }
+    $path = $r.BaseResponse.ResponseUri.AbsolutePath
+    $ok = $path -ne "/login"
+    return @{ Ok = $ok; Session = $s; Detail = $path }
 }
 
 function Check-Page($session, $path, $label) {

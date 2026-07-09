@@ -8,8 +8,8 @@ use dtr::services::timezone::company_date_now;
 use uuid::Uuid;
 
 use common::{
-    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, header_value,
-    login_as, post_form, post_multipart, test_app, test_pool,
+    create_ready_employee, extract_csrf_token, get, get_bytes, get_with_headers, has_error_flash,
+    header_value, login_as, post_form, post_multipart, test_app, test_pool,
 };
 
 const TEST_PIN: &str = "482915";
@@ -315,7 +315,7 @@ async fn closed_pay_period_blocks_clock_in_via_http() {
     let cookies = login_as(&mut app, &code, TEST_PIN).await;
     let (_, home_html, cookies) = get(&mut app, "/", &cookies).await;
     let csrf = extract_csrf_token(&home_html).expect("csrf token");
-    let (status, body, _) = post_form(
+    let (status, _, cookies) = post_form(
         &mut app,
         "/clock/in",
         &cookies,
@@ -323,8 +323,10 @@ async fn closed_pay_period_blocks_clock_in_via_http() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("closed pay period"));
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, home_after, _) = get(&mut app, "/", &cookies).await;
+    assert!(has_error_flash(&home_after));
+    assert!(home_after.contains("closed pay period"));
 
     let _ = sqlx::query("DELETE FROM closed_pay_periods WHERE period_start = $1")
         .bind(today)
@@ -559,7 +561,7 @@ async fn requirement_upload_rejects_mismatched_content_via_http() {
     let csrf = extract_csrf_token(&requirements_html).expect("csrf token");
 
     let path = format!("/me/requirements/{}/submit", row.id);
-    let (status, body, _) = post_multipart(
+    let (status, _, cookies) = post_multipart(
         &mut app,
         &path,
         &cookies,
@@ -569,8 +571,13 @@ async fn requirement_upload_rejects_mismatched_content_via_http() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("does not match") || body.contains("Unrecognized"));
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, requirements_after, _) = get(&mut app, "/me/requirements", &cookies).await;
+    assert!(has_error_flash(&requirements_after));
+    assert!(
+        requirements_after.contains("does not match")
+            || requirements_after.contains("Unrecognized")
+    );
 
     cleanup_requirement_type(&pool, req_type.id).await;
     cleanup_employee(&pool, &code).await;
@@ -747,7 +754,7 @@ async fn requirement_upload_rejects_generic_zip_as_docx_via_http() {
 
     let path = format!("/me/requirements/{}/submit", row.id);
     let fake_docx = b"PK\x03\x04\x00\x00generic zip without word document path";
-    let (status, body, _) = post_multipart(
+    let (status, _, cookies) = post_multipart(
         &mut app,
         &path,
         &cookies,
@@ -761,8 +768,13 @@ async fn requirement_upload_rejects_generic_zip_as_docx_via_http() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("does not match") || body.contains("Unrecognized"));
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, requirements_after, _) = get(&mut app, "/me/requirements", &cookies).await;
+    assert!(has_error_flash(&requirements_after));
+    assert!(
+        requirements_after.contains("does not match")
+            || requirements_after.contains("Unrecognized")
+    );
 
     cleanup_requirement_type(&pool, req_type.id).await;
     cleanup_employee(&pool, &code).await;

@@ -19,6 +19,15 @@ function Login($code, $pin) {
     return $session
 }
 
+function Complete-AdminPinChange($session, $currentPin, $newPin) {
+    $page = Invoke-WebRequest -Uri "$Base/change-pin" -WebSession $session -UseBasicParsing
+    if ($page.Content -notmatch "Change PIN") { return }
+    $csrf = Get-Csrf $page.Content
+    $body = "current_pin=$currentPin&new_pin=$newPin&confirm_pin=$newPin&csrf_token=$csrf"
+    $null = Invoke-WebRequest -Uri "$Base/change-pin" -Method POST -WebSession $session -UseBasicParsing `
+        -ContentType "application/x-www-form-urlencoded" -Body $body -MaximumRedirection 0 -ErrorAction SilentlyContinue
+}
+
 function Post-Form($session, $path, $fields) {
     $page = Invoke-WebRequest -Uri "$Base$path" -WebSession $session -UseBasicParsing
     $csrf = Get-Csrf $page.Content
@@ -74,14 +83,18 @@ $clockPage2 = Invoke-WebRequest -Uri "$Base/" -WebSession $emp -UseBasicParsing
 $csrf2 = Get-Csrf $clockPage2.Content
 $body2 = "csrf_token=$csrf2"
 try {
-    $null = Invoke-WebRequest -Uri "$Base/clock/in" -Method POST -WebSession $emp -UseBasicParsing `
+    $post2 = Invoke-WebRequest -Uri "$Base/clock/in" -Method POST -WebSession $emp -UseBasicParsing `
         -ContentType "application/x-www-form-urlencoded" -Body $body2 -MaximumRedirection 0 -ErrorAction SilentlyContinue
-} catch { }
+    $dblStatus = [int]$post2.StatusCode
+} catch {
+    $dblStatus = [int]$_.Exception.Response.StatusCode
+}
 $check2 = Follow-And-Check $emp "/" @("alert-error", "Already clocked", "Already completed")
-$results += [pscustomobject]@{ Area = "Clock"; Test = "Double clock-in shows flash not 400"; Pass = ($post2.Status -in 302,303) -and $check2.Ok; Detail = "status=$($post2.Status); flash=$($check2.Hits -join ',')" }
+$results += [pscustomobject]@{ Area = "Clock"; Test = "Double clock-in shows flash not 400"; Pass = ($dblStatus -in 302,303) -and $check2.Ok; Detail = "status=$dblStatus; flash=$($check2.Hits -join ',')" }
 
 Write-Host "=== Admin pages load ===" -ForegroundColor Cyan
 $admin = Login "ADMIN" "1234"
+Complete-AdminPinChange $admin "1234" "7391"
 foreach ($p in @("/manager", "/admin/employees", "/admin/payroll", "/admin/reports", "/admin/settings")) {
     $page = Invoke-WebRequest -Uri "$Base$p" -WebSession $admin -UseBasicParsing
     $results += [pscustomobject]@{ Area = "Admin"; Test = "GET $p"; Pass = ($page.StatusCode -eq 200); Detail = "len=$($page.Content.Length)" }

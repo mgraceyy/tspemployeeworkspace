@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="color-scheme" content="light dark">
+  <title>Change PIN — TalaSora Prime</title>
+  <script src="/static/theme.js?v=20260707g"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260707g">
+</head>
+<body class="page-auth page-auth">
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <div class="app-layout app-layout-auth">
+    
+
+    <div class="app-main">
+      
+      <header class="site-header site-header-minimal">
+        <div class="container header-shell">
+          <a href="/" class="brand">
+            <span class="brand-mark" aria-hidden="true">DTR</span>
+            <div class="brand-text">
+              <span class="brand-name">TalaSora Prime</span>
+              <span class="brand-sub">Employee Timekeeping</span>
+            </div>
+          </a>
+        </div>
+      </header>
+      
+
+      <main id="main-content" class="container ">
+        
+        
+<div class="auth-shell">
+  <section class="auth-card login-card">
+    <div class="auth-card-icon" aria-hidden="true">🔐</div>
+    <h1>Change Your PIN</h1>
+    
+    <p class="muted">You must set a new PIN before continuing.</p>
+    
+    
+    <form method="post" action="/change-pin" class="stack">
+      <input type="hidden" name="csrf_token" value="93c43c0a-d482-4455-89d3-d529087f90dc">
+      
+      <label>
+        New PIN
+        <input type="password" name="new_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" autocomplete="new-password" inputmode="numeric" placeholder="4–6 digits">
+      </label>
+      <label>
+        Confirm New PIN
+        <input type="password" name="confirm_pin" required minlength="4" maxlength="6" pattern="[0-9]{4,6}" autocomplete="new-password" inputmode="numeric" placeholder="Re-enter PIN">
+      </label>
+      <button type="submit" class="btn btn-primary btn-large">Save PIN</button>
+    </form>
+  </section>
+</div>
+
+      </main>
+
+      <footer class="site-footer">
+        <div class="container">
+          <p>TalaSora Prime · Employee Timekeeping</p>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  
+</body>
+</html>

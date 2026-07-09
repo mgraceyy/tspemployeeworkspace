@@ -83,7 +83,7 @@ pub async fn list_payslips_for_employee(
                 l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
-                ), 0) AS total_deduction_cents,
+                ), 0)::bigint AS total_deduction_cents,
                 r.finalized_at
          FROM payroll_lines l
          JOIN payroll_runs r ON r.id = l.run_id
@@ -106,7 +106,7 @@ async fn fetch_payslip_line(pool: &PgPool, line_id: Uuid) -> AppResult<PayslipLi
                 l.premium_pay_cents, l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
-                ), 0) AS total_deduction_cents,
+                ), 0)::bigint AS total_deduction_cents,
                 r.finalized_at
          FROM payroll_lines l
          JOIN payroll_runs r ON r.id = l.run_id

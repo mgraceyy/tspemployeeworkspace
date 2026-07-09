@@ -57,15 +57,15 @@ pub async fn payroll_summary(
         "SELECT e.employee_code,
                 e.full_name,
                 p.department,
-                COALESCE(SUM(te.regular_minutes), 0) AS regular_minutes,
-                COALESCE(SUM(CASE WHEN te.ot_status = 'approved' THEN te.ot_minutes ELSE 0 END), 0) AS approved_ot_minutes,
-                COALESCE(SUM(CASE WHEN te.ot_status = 'pending' THEN te.ot_minutes ELSE 0 END), 0) AS pending_ot_minutes,
-                COALESCE(SUM(CASE WHEN te.attendance = 'sick_leave' THEN 1 ELSE 0 END), 0) AS sick_leave_days,
-                COALESCE(SUM(CASE WHEN te.attendance = 'vacation' THEN 1 ELSE 0 END), 0) AS vacation_days,
-                COALESCE(SUM(CASE WHEN te.attendance = 'official_leave' THEN 1 ELSE 0 END), 0) AS official_leave_days,
-                COALESCE(SUM(CASE WHEN te.attendance = 'offset' THEN 1 ELSE 0 END), 0) AS offset_days,
-                COALESCE(SUM(CASE WHEN te.attendance = 'lwop' THEN 1 ELSE 0 END), 0) AS lwop_days,
-                COALESCE(SUM(CASE WHEN te.attendance = 'no_show' THEN 1 ELSE 0 END), 0) AS no_show_days
+                COALESCE(SUM(te.regular_minutes), 0)::bigint AS regular_minutes,
+                COALESCE(SUM(CASE WHEN te.ot_status = 'approved' THEN te.ot_minutes ELSE 0 END), 0)::bigint AS approved_ot_minutes,
+                COALESCE(SUM(CASE WHEN te.ot_status = 'pending' THEN te.ot_minutes ELSE 0 END), 0)::bigint AS pending_ot_minutes,
+                COALESCE(SUM(CASE WHEN te.attendance = 'sick_leave' THEN 1 ELSE 0 END), 0)::bigint AS sick_leave_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'vacation' THEN 1 ELSE 0 END), 0)::bigint AS vacation_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'official_leave' THEN 1 ELSE 0 END), 0)::bigint AS official_leave_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'offset' THEN 1 ELSE 0 END), 0)::bigint AS offset_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'lwop' THEN 1 ELSE 0 END), 0)::bigint AS lwop_days,
+                COALESCE(SUM(CASE WHEN te.attendance = 'no_show' THEN 1 ELSE 0 END), 0)::bigint AS no_show_days
          FROM employees e
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
          LEFT JOIN time_entries te

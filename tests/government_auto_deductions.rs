@@ -48,22 +48,43 @@ async fn enable_all_gov_toggles(pool: &PgPool) {
 
 async fn cleanup_payroll_test_period(
     pool: &PgPool,
-    run_id: Option<Uuid>,
+    _run_id: Option<Uuid>,
     period_start: Date,
     period_end: Date,
 ) {
-    if let Some(run_id) = run_id {
-        let _ = sqlx::query("DELETE FROM payroll_lines WHERE run_id = $1")
-            .bind(run_id)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM payroll_runs WHERE id = $1")
-            .bind(run_id)
-            .execute(pool)
-            .await;
-    }
+    let _ = sqlx::query(
+        "DELETE FROM payroll_deductions WHERE line_id IN (
+            SELECT pl.id FROM payroll_lines pl
+            JOIN payroll_runs pr ON pr.id = pl.run_id
+            WHERE pr.period_start = $1 AND pr.period_end = $2)",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .execute(pool)
+    .await;
+    let _ = sqlx::query(
+        "DELETE FROM payroll_lines WHERE run_id IN (
+            SELECT id FROM payroll_runs WHERE period_start = $1 AND period_end = $2)",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .execute(pool)
+    .await;
+    let _ = sqlx::query("DELETE FROM payroll_runs WHERE period_start = $1 AND period_end = $2")
+        .bind(period_start)
+        .bind(period_end)
+        .execute(pool)
+        .await;
     let _ =
         dtr::services::payroll_controls::reopen_pay_period(pool, period_start, period_end).await;
+    let _ = sqlx::query(
+        "DELETE FROM closed_pay_periods
+         WHERE period_start <= $2 AND period_end >= $1",
+    )
+    .bind(period_start)
+    .bind(period_end)
+    .execute(pool)
+    .await;
 }
 
 async fn cleanup_employee(pool: &PgPool, code: &str) {
@@ -116,6 +137,7 @@ async fn draft_run_applies_government_auto_deductions_when_enabled() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let (period_start, period_end) = isolated_payroll_period(&settings);
+    cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
 
     close_pay_period(
         &pool,
@@ -202,6 +224,7 @@ async fn recalculate_refreshes_stale_government_deductions() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let (period_start, period_end) = isolated_payroll_period(&settings);
+    cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
 
     close_pay_period(
         &pool,
@@ -302,6 +325,7 @@ async fn disabled_toggles_skip_government_auto_deductions() {
 
     let settings = get_settings(&pool).await.expect("settings");
     let (period_start, period_end) = isolated_payroll_period(&settings);
+    cleanup_payroll_test_period(&pool, None, period_start, period_end).await;
 
     close_pay_period(
         &pool,

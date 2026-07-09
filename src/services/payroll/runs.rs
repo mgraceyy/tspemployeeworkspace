@@ -43,7 +43,7 @@ pub async fn list_runs(pool: &PgPool) -> AppResult<Vec<PayrollRunListItem>> {
     sqlx::query_as::<_, PayrollRunListItem>(
         "SELECT r.id, r.period_start, r.period_end, r.status, r.created_at, r.finalized_at,
                 COUNT(l.id) AS line_count,
-                COALESCE(SUM(l.gross_pay_cents), 0) AS total_gross_cents
+                COALESCE(SUM(l.gross_pay_cents), 0)::bigint AS total_gross_cents
          FROM payroll_runs r
          LEFT JOIN payroll_lines l ON l.run_id = r.id
          WHERE r.status != 'voided'
@@ -145,7 +145,7 @@ pub async fn list_lines_for_run(
                 l.premium_pay_cents, l.gross_pay_cents, l.net_pay_cents,
                 COALESCE((
                     SELECT SUM(d.amount_cents) FROM payroll_deductions d WHERE d.line_id = l.id
-                ), 0) AS total_deduction_cents
+                ), 0)::bigint AS total_deduction_cents
          FROM payroll_lines l
          JOIN employees e ON e.id = l.employee_id
          LEFT JOIN employee_profiles p ON p.employee_id = e.id
